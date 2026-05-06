@@ -11,8 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <script>
-// Non-blocking Three.js loader for GitHub Pages / iOS browsers.
-// This keeps the app shell loading even if a CDN is slow or temporarily blocked.
+// GitHub Pages safe loader: Three.js is loaded only when needed, so a slow/blocked CDN cannot blank-screen the app.
 (function(){
   const sources=[
     'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
@@ -28,26 +27,25 @@
     if(window.__threeLoading)return;
     window.__threeLoading=true;
     let i=0;
-    const done=(ok)=>{
+    const finish=(ok)=>{
       window.__threeLoading=false;
       window.__threeReady=!!ok;
-      const callbacks=window.__threeCallbacks.splice(0);
-      callbacks.forEach(fn=>{try{fn(!!ok)}catch(e){console.warn(e)}});
+      const cbs=window.__threeCallbacks.splice(0);
+      cbs.forEach(fn=>{try{fn(!!ok)}catch(e){console.warn(e)}});
     };
     const tryNext=()=>{
-      if(window.THREE){done(true);return;}
-      if(i>=sources.length){console.warn('Three.js could not be loaded. App will continue without the visualizer until the library is available.');done(false);return;}
+      if(window.THREE){finish(true);return;}
+      if(i>=sources.length){console.warn('Three.js could not be loaded from the available CDNs. The main app will still run.');finish(false);return;}
       const s=document.createElement('script');
       s.src=sources[i++];
       s.async=true;
       s.crossOrigin='anonymous';
-      s.onload=()=>done(true);
+      s.onload=()=>finish(true);
       s.onerror=tryNext;
       document.head.appendChild(s);
     };
     tryNext();
   };
-  window.__loadThree();
 })();
 </script>
 <script>
@@ -404,10 +402,29 @@ body.performance .perf-return{display:flex}
   .topbar{font-size:11px}
   .master-vol{width:80px}
 }
+
+/* ===== BOOT SAFETY OVERLAY ===== */
+#boot-error{position:fixed;inset:0;z-index:20000;display:none;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,#120018 0%,#000 70%);padding:18px;color:#cfeefb;font-family:'Share Tech Mono',monospace}
+#boot-error.active{display:flex}
+.boot-card{max-width:760px;width:min(760px,94vw);background:rgba(6,5,15,.96);border:2px solid var(--neon3);box-shadow:0 0 24px var(--neon3),0 0 70px rgba(255,230,0,.18);padding:18px}
+.boot-card h1{font-family:'Press Start 2P',monospace;font-size:13px;color:var(--neon3);line-height:1.6;text-shadow:0 0 8px var(--neon3);margin-bottom:10px}
+.boot-card p{font-family:'VT323',monospace;font-size:17px;line-height:1.35;color:var(--text);margin:7px 0}
+.boot-card pre{white-space:pre-wrap;word-break:break-word;background:#000;border:1px solid var(--stroke);color:#ff8fb3;padding:10px;margin-top:10px;max-height:220px;overflow:auto;font-size:12px}
+.boot-card button{margin-top:12px;font-family:'Press Start 2P',monospace;font-size:9px;padding:10px 14px;background:#000;color:var(--neon);border:2px solid var(--neon);box-shadow:0 0 10px var(--neon)}
+
 </style>
 </head>
 <body>
 <div class="scanlines"></div><div class="vignette"></div>
+<div id="boot-error"><div class="boot-card">
+  <h1>BOOT SAFETY CHECK</h1>
+  <p>The page loaded, but one startup step hit an error. This screen prevents a silent black page on GitHub Pages.</p>
+  <p>Try the reload button below. If it still shows this panel, the technical details are shown here instead of leaving the app blank.</p>
+  <pre id="boot-error-text"></pre>
+  <button id="boot-reload" type="button">RELOAD APP</button>
+</div></div>
+<noscript><div style="position:fixed;inset:0;background:#000;color:#00ffd5;z-index:30000;padding:24px;font-family:monospace">This app needs JavaScript enabled to run.</div></noscript>
+
 
 <div id="launch">
   <div class="lg-grid"></div>
@@ -553,6 +570,30 @@ body.performance .perf-return{display:flex}
 <!-- Performance-mode return circle -->
 <button class="perf-return" id="perf-return" title="Exit performance mode">×</button>
 
+<script>
+window.__bootStarted=false;
+window.__bootOK=false;
+function __showBootError(err){
+  try{
+    const box=document.getElementById('boot-error');
+    const txt=document.getElementById('boot-error-text');
+    if(txt){
+      const msg=(err&&err.stack)?err.stack:String((err&&err.message)||err||'Unknown startup error');
+      txt.textContent=msg;
+    }
+    if(box)box.classList.add('active');
+  }catch(e){console.error('Boot error display failed',e)}
+}
+window.addEventListener('error',function(e){
+  if(window.__bootStarted&&!window.__bootOK)__showBootError(e.error||e.message);
+});
+window.addEventListener('unhandledrejection',function(e){
+  if(window.__bootStarted&&!window.__bootOK)__showBootError(e.reason||'Unhandled promise rejection');
+});
+document.addEventListener('click',function(e){
+  if(e.target&&e.target.id==='boot-reload')location.reload();
+});
+</script>
 <script>
 /* ============ HOLD IT DOWN — engine ============ */
 const $=q=>document.querySelector(q);
@@ -2798,14 +2839,17 @@ function buildVizControls(){
 
 function setupVisualizer(){
   buildVizControls();
+  if(viz3d)return;
   if(!window.THREE){
     window.__loadThree?.(ok=>{
-      if(ok && STATE.viz.active && !viz3d){
+      if(ok && !viz3d){
         setupVisualizer();
-        vizResize();
-        if(!STATE.viz.raf)vizLoop();
-      } else if(!ok){
-        toast('Visualizer library still loading — app controls are ready',1800);
+        if(STATE.viz.active){
+          vizResize();
+          if(!STATE.viz.raf)vizLoop();
+        }
+      } else if(!ok && STATE.viz.active){
+        toast('Visualizer library could not load, but the main app is ready',2200);
       }
     });
     return;
@@ -2814,7 +2858,7 @@ function setupVisualizer(){
   const w=window.innerWidth,h=window.innerHeight;
   const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false});
   renderer.setSize(w,h,false);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
   const camera=new THREE.PerspectiveCamera(60,w/h,0.1,2000);
   camera.position.set(0,0,STATE.viz.cam.distance);
   const scene=new THREE.Scene();
@@ -2825,7 +2869,6 @@ function setupVisualizer(){
     }
   };
   vizSetScene(STATE.viz.scene);
-  if(STATE.viz.active && !STATE.viz.raf)vizLoop();
 }
 window.addEventListener('resize',()=>{if(viz3d)vizResize()});
 
@@ -3292,13 +3335,32 @@ window.addEventListener('keyup',e=>{
 });
 
 /* ===== LAUNCH ===== */
-$('#launch-btn').addEventListener('click',()=>{
-  $('#launch').style.display='none';
-  $('#app').classList.add('active');
-  setTimeout(initApp,30);
-});
+function startAppSafely(){
+  if(window.__bootStarted)return;
+  window.__bootStarted=true;
+  const launch=$('#launch');
+  const app=$('#app');
+  try{
+    app.classList.add('active');
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      try{
+        initApp();
+        window.__bootOK=true;
+        launch.style.display='none';
+      }catch(err){
+        console.error('Startup failed:',err);
+        launch.style.display='none';
+        __showBootError(err);
+      }
+    }));
+  }catch(err){
+    console.error('Startup failed before init:',err);
+    __showBootError(err);
+  }
+}
+$('#launch-btn').addEventListener('click',startAppSafely);
 window.addEventListener('keydown',e=>{
-  if(e.code==='Enter'&&$('#launch').style.display!=='none'){$('#launch-btn').click()}
+  if(e.code==='Enter'&&$('#launch').style.display!=='none'){startAppSafely()}
 },{once:true});
 </script>
 </body>
