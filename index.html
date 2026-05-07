@@ -379,6 +379,32 @@ body.performance .perf-return{display:flex}
   .topbar{font-size:11px}
   .master-vol{width:80px}
 }
+
+/* message board + prelaunch modal */
+.launch-actions{display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;position:relative;z-index:6}
+.launch-note{position:relative;z-index:6;margin-top:12px;max-width:700px;padding:10px 14px;border:1px solid var(--stroke);border-radius:12px;background:rgba(5,10,20,.55);box-shadow:0 0 18px rgba(0,255,213,.12);font-size:13px;line-height:1.45;text-align:center}
+.overlay-modal{position:fixed;inset:0;z-index:12000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.72);backdrop-filter:blur(5px)}
+.overlay-modal.show{display:flex}
+.overlay-card{width:min(92vw,560px);background:linear-gradient(180deg,#0d1020,#05070f);border:1px solid rgba(0,255,213,.28);border-radius:18px;padding:18px;box-shadow:0 18px 60px rgba(0,0,0,.5),0 0 22px rgba(0,255,213,.15)}
+.overlay-card h3{font-family:'Press Start 2P',monospace;font-size:14px;line-height:1.5;color:var(--neon);margin:0 0 12px;text-shadow:0 0 10px var(--neon)}
+.overlay-card p{font-size:15px;line-height:1.55;color:var(--text);margin:0 0 12px}
+.overlay-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px}
+.board-list{display:flex;flex-direction:column;gap:10px;max-height:100%;overflow:auto;padding-right:4px}
+.board-item{padding:10px 12px;border:1px solid var(--stroke);border-radius:12px;background:rgba(255,255,255,.03);box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
+.board-head{display:flex;gap:8px;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
+.board-name{font-weight:700;color:var(--neon)}
+.board-ig{font-size:12px;color:var(--neon3)}
+.board-meta{font-size:11px;color:var(--dim)}
+.board-msg{white-space:pre-wrap;line-height:1.5}
+.board-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;height:100%}
+.board-pane{min-height:0;display:flex;flex-direction:column;gap:8px}
+.board-pane .field{display:flex;flex-direction:column;align-items:stretch;gap:6px}
+.board-pane textarea,.board-pane input{width:100%;background:#05060c;border:1px solid var(--stroke);color:var(--text);border-radius:10px;padding:10px}
+.board-pane textarea{min-height:130px;resize:vertical}
+.board-empty{padding:18px;border:1px dashed var(--stroke);border-radius:12px;color:var(--dim);text-align:center}
+.board-disclaimer{font-size:11px;line-height:1.4;color:var(--dim)}
+@media (max-width:900px){.board-grid{grid-template-columns:1fr}}
+
 </style>
 </head>
 <body>
@@ -391,7 +417,7 @@ body.performance .perf-return{display:flex}
     <div class="p3d-k"></div><div class="p3d-k b"></div><div class="p3d-k"></div><div class="p3d-k b"></div><div class="p3d-k"></div><div class="p3d-k"></div><div class="p3d-k b"></div><div class="p3d-k"></div><div class="p3d-k b"></div><div class="p3d-k"></div><div class="p3d-k b"></div><div class="p3d-k"></div>
   </div></div>
   <div class="kr"><div class="ks"></div><div class="ks"></div><div class="ks"></div><div class="ks"></div></div>
-  <button class="lb" id="launch-btn">▶ LAUNCH</button>
+  <div class="launch-actions"><button class="lb" id="launch-btn">▶ LAUNCH</button><button class="lb" id="launch-board-btn">✦ MESSAGE BOARD</button></div><div class="launch-note">This app functions best with a computer keyboard for the full live-performance shortcut set and piano control.</div>
   <div class="lc">v1.0 // SYSTEM READY // PRESS ENTER</div>
 </div>
 
@@ -439,7 +465,7 @@ body.performance .perf-return{display:flex}
     <button class="btn" id="btn-fullscreen">⛶ FULL</button>
     <button class="btn-vis" id="btn-vis">✦ VISUALIZER</button>
     <button class="btn-perf" id="btn-perf">▣ PERFORMANCE</button>
-    <button class="btn" id="btn-help">?</button>
+    <button class="btn" id="btn-board">✉ BOARD</button><button class="btn" id="btn-help">?</button>
     <input type="file" id="file-load" style="display:none" accept=".hold,.json">
     <input type="file" id="file-audio" style="display:none" accept="audio/*,video/*" multiple>
   </header>
@@ -4363,15 +4389,118 @@ window.addEventListener('keyup',e=>{
   STATE.viz.keysDown.delete(e.code);
 });
 
+
+/* ===== MESSAGE BOARD (device-local board; true public board requires a backend) ===== */
+const MESSAGE_BOARD_KEY='hid_message_board_v1';
+function readMessageBoard(){
+  try{return JSON.parse(localStorage.getItem(MESSAGE_BOARD_KEY)||'[]')||[]}catch{return []}
+}
+function writeMessageBoard(items){
+  try{localStorage.setItem(MESSAGE_BOARD_KEY,JSON.stringify(items.slice(0,200)))}catch{}
+}
+function escHtml(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function renderMessageBoard(){
+  const list=$('#board-list');
+  if(!list)return;
+  const items=readMessageBoard().sort((a,b)=>(b.ts||0)-(a.ts||0));
+  if(!items.length){
+    list.innerHTML='<div class="board-empty">No messages yet on this browser.<br><span class="board-disclaimer">A truly public board for all visitors needs a backend/database service.</span></div>';
+    return;
+  }
+  list.innerHTML=items.map((item,idx)=>`<div class="board-item">
+    <div class="board-head">
+      <div><div class="board-name">${escHtml(item.name||'Anonymous')}</div><div class="board-ig">${item.ig?('@'+escHtml(String(item.ig).replace(/^@+/,''))):''}</div></div>
+      <div class="board-meta">${new Date(item.ts||Date.now()).toLocaleString()}</div>
+    </div>
+    <div class="board-msg">${escHtml(item.msg||'')}</div>
+  </div>`).join('');
+}
+function openMessageBoardWindow(){
+  const existing=$('#win-board');
+  if(existing){showWindow('board');renderMessageBoard();bringToFront('board');return;}
+  const html=`<div class="board-grid">
+    <div class="board-pane">
+      <div style="font-family:'Press Start 2P',monospace;font-size:10px;color:var(--neon);letter-spacing:.08em;text-shadow:0 0 8px var(--neon)">PUBLIC MESSAGE BOARD</div>
+      <div class="board-disclaimer">This build can save and show messages on this browser/device. A truly shared public board for all visitors needs a backend service.</div>
+      <div class="field"><label>NAME</label><input id="board-name" maxlength="50" placeholder="Your name"></div>
+      <div class="field"><label>INSTAGRAM</label><input id="board-ig" maxlength="60" placeholder="@yourhandle"></div>
+      <div class="field" style="flex:1"><label>MESSAGE</label><textarea id="board-msg" maxlength="500" placeholder="Leave a message for other visitors..."></textarea></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn gold" id="board-save-btn">SAVE MESSAGE</button>
+        <button class="btn" id="board-refresh-btn">REFRESH</button>
+        <button class="btn warn" id="board-clear-local-btn">CLEAR MY LOCAL BOARD</button>
+      </div>
+    </div>
+    <div class="board-pane">
+      <div style="font-family:'Press Start 2P',monospace;font-size:10px;color:var(--neon3);letter-spacing:.08em;text-shadow:0 0 8px var(--neon3)">MESSAGES</div>
+      <div id="board-list" class="board-list"></div>
+    </div>
+  </div>`;
+  makeWindow('board','MESSAGE BOARD',html,{w:860,h:520,x:90,y:72});
+  const saveBtn=$('#board-save-btn'), refreshBtn=$('#board-refresh-btn'), clearBtn=$('#board-clear-local-btn');
+  saveBtn?.addEventListener('click',()=>{
+    const name=($('#board-name')?.value||'').trim();
+    const ig=($('#board-ig')?.value||'').trim();
+    const msg=($('#board-msg')?.value||'').trim();
+    if(!msg){toast('Enter a message first');return;}
+    const items=readMessageBoard();
+    items.push({name:name||'Anonymous',ig,msg,ts:Date.now()});
+    writeMessageBoard(items);
+    $('#board-msg').value='';
+    renderMessageBoard();
+    toast('Message saved to local board');
+  });
+  refreshBtn?.addEventListener('click',renderMessageBoard);
+  clearBtn?.addEventListener('click',()=>{
+    if(confirm('Clear all saved message-board entries on this browser?')){writeMessageBoard([]);renderMessageBoard();}
+  });
+  renderMessageBoard();
+  showWindow('board');
+}
+
 /* ===== LAUNCH ===== */
-$('#launch-btn').addEventListener('click',()=>{
+let __launchReady=false;
+function startAppFromLaunch(){
+  if(__launchReady)return;
+  __launchReady=true;
+  $('#prelaunch-modal')?.classList.remove('show');
   $('#launch').style.display='none';
   $('#app').classList.add('active');
   setTimeout(initApp,30);
+}
+$('#launch-btn').addEventListener('click',()=>{
+  $('#prelaunch-modal')?.classList.add('show');
 });
+$('#prelaunch-continue')?.addEventListener('click',startAppFromLaunch);
+$('#launch-board-btn')?.addEventListener('click',openMessageBoardWindow);
+$('#prelaunch-board')?.addEventListener('click',()=>{openMessageBoardWindow();});
+$('#btn-board')?.addEventListener('click',openMessageBoardWindow);
 window.addEventListener('keydown',e=>{
-  if(e.code==='Enter'&&$('#launch').style.display!=='none'){$('#launch-btn').click()}
-},{once:true});
+  if($('#launch').style.display!=='none' && e.code==='Enter'){
+    e.preventDefault();
+    if($('#prelaunch-modal')?.classList.contains('show')) startAppFromLaunch();
+    else $('#launch-btn').click();
+  }
+});
+document.addEventListener('keydown',e=>{
+  if(e.code==='Escape' && $('#prelaunch-modal')?.classList.contains('show')){
+    e.preventDefault();
+    $('#prelaunch-modal').classList.remove('show');
+  }
+});
 </script>
+
+<div class="overlay-modal" id="prelaunch-modal" aria-hidden="true">
+  <div class="overlay-card">
+    <h3>BEST EXPERIENCE</h3>
+    <p>This app functions best with a <b>computer keyboard</b>. You can still use touch and on-screen controls, but the live piano and many performance shortcuts are designed for a hardware keyboard.</p>
+    <p style="color:var(--dim);font-size:13px">You can continue anyway, or open the message board first.</p>
+    <div class="overlay-actions">
+      <button class="btn" id="prelaunch-board">✉ MESSAGE BOARD</button>
+      <button class="btn gold" id="prelaunch-continue">CONTINUE</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
