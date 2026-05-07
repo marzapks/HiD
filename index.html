@@ -805,7 +805,7 @@ const STATE={
   taps:[],
   custom:[],
   loop:{state:'idle',events:[],startAt:0,length:0,playStart:0,quantize:false,raf:null,_lastT:-1,_fired:new Set()},
-  sampler:{mode:'pads',pads:new Array(16).fill(null),keyMap:new Map(),buffers:[]},
+  sampler:{mode:'pads',pads:new Array(16).fill(null),keyMap:new Map(),buffers:[],activeSources:new Set()},
   // === PAD SYSTEM (independent of synth) ===
   // pads[i] = {kind:'sample'|'shape'|'sequence', name, sample?, shape?, sequence?, patchSnapshot?, sustain?:bool, ...}
   pads:new Array(16).fill(null),
@@ -986,6 +986,7 @@ function playChord(chord){
   const notes=chord.customNotes?chord.customNotes.slice():chord.ints.map(i=>baseRoot+i);
   slotCancelCountdown();
   cancelPendingChordStart();
+  for(const node of Array.from(STATE.sampler.activeSources||[])){try{node.src.stop(0)}catch{}};
   releaseAllSmooth();
   const token=STATE.chordPlayToken;
   STATE.chordQueueTimer=setTimeout(()=>{
@@ -1007,6 +1008,7 @@ function stopAll(){
   padCancelCountdown();
   padStopAll(true);
   cancelPendingChordStart();
+  for(const node of Array.from(STATE.sampler.activeSources||[])){try{node.src.stop(0)}catch{}};
   releaseAllSmooth();
   STATE.activeChord=null;updateTape();
 }
@@ -1045,8 +1047,10 @@ const KB_NOTES={
   'KeyQ':60,'Digit2':61,'KeyW':62,'Digit3':63,'KeyE':64,'KeyR':65,'Digit5':66,'KeyT':67,'Digit6':68,'KeyY':69,'Digit7':70,'KeyU':71,
   'KeyI':72,'Digit9':73,'KeyO':74,'Digit0':75,'KeyP':76,'Equal':78
 };
-const SLOT_KEYS=['Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7','Digit8','Digit9','Digit0'];
-const SAMPLER_F_KEYS=['F1','F2','F3','F4','F5','F6','F7','F8'];
+const SLOT_KEYS=['F1','F2','F3','F4','F5','F6','F7','F8','F9','F10'];
+const PAD_TRIGGER_KEYS=['Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7','Digit8','Digit9','Digit0','Shift+Digit1','Shift+Digit2','Shift+Digit3','Shift+Digit4','Shift+Digit5','Shift+Digit6'];
+const PAD_KEY_LABELS=['1','2','3','4','5','6','7','8','9','0','⇧1','⇧2','⇧3','⇧4','⇧5','⇧6'];
+const SLOT_KEY_LABELS=['F1','F2','F3','F4','F5','F6','F7','F8','F9','F10'];
 
 function shortcutFor(midi){
   const real=midi-STATE.octave*12-STATE.transpose;
@@ -1638,7 +1642,7 @@ function buildSlotsWindow(){
   for(let i=0;i<10;i++){
     const s=STATE.slots[i];
     const el=document.createElement('div');el.className='slot'+(i===STATE.slotIdx?' armed':'')+(s?' active':'');
-    const num=i+1===10?0:i+1;
+    const num=SLOT_KEY_LABELS[i]||String(i+1===10?0:i+1);
     el.innerHTML=`<span class="slot-num">${num}</span><span class="${s?'slot-name':'slot-empty'}">${s?s.name:'—'}</span>`;
     el.addEventListener('click',e=>{
       if(e.shiftKey){STATE.slots[i]=null;buildSlotsWindow();toast(`Slot ${i+1} cleared`);return}
@@ -1659,15 +1663,28 @@ async function decodeAudioFile(file){
   const buf=await file.arrayBuffer();
   return new Promise((res,rej)=>ctx.decodeAudioData(buf.slice(0),res,rej));
 }
+function samplePlaybackRateForWheel(){
+  return Math.pow(2,(STATE.modWheel.active||0)/12);
+}
+function applyPitchToActiveSamples(){
+  const rate=samplePlaybackRateForWheel();
+  for(const node of STATE.sampler.activeSources){
+    try{node.src.playbackRate.setTargetAtTime((node.baseRate||1)*rate,ctx.currentTime,0.04)}catch{}
+  }
+}
 function playSampleBuffer(buffer,vel=1){
   if(!buffer)return null;
   const src=ctx.createBufferSource();src.buffer=buffer;
+  src.playbackRate.value=samplePlaybackRateForWheel();
   const g=ctx.createGain();g.gain.value=vel;
   src.connect(g).connect(fxIn);
-  src.start();return src;
+  const node={src,g,baseRate:1};
+  STATE.sampler.activeSources.add(node);
+  src.onended=()=>{STATE.sampler.activeSources.delete(node);try{src.disconnect()}catch{};try{g.disconnect()}catch{}};
+  src.start();
+  return src;
 }
 
-const PAD_KEY_LABELS=['F1','F2','F3','F4','F5','F6','F7','F8','⇧F1','⇧F2','⇧F3','⇧F4','⇧F5','⇧F6','⇧F7','⇧F8'];
 
 function snapshotPatch(){
   return {
@@ -2625,20 +2642,99 @@ $('#file-load').addEventListener('change',async e=>{
   e.target.value='';
 });
 
+/* ===== UI KEYBOARD NAVIGATION ===== */
+const UI_FOCUS_SELECTOR='button,input,select,textarea,.slot,.spad,.scene-btn,.viz-btn,[tabindex]';
+function isUIFocusable(el){
+  return !!(el && el.matches && el.matches(UI_FOCUS_SELECTOR) && !el.disabled && el.getAttribute('aria-hidden')!=='true');
+}
+function ensureUIFocusable(el){
+  if(!el||!el.matches)return;
+  if((el.classList.contains('slot')||el.classList.contains('spad')||el.classList.contains('scene-btn')||el.classList.contains('viz-btn')) && !el.hasAttribute('tabindex')) el.setAttribute('tabindex','0');
+}
+function getUIContainer(el){
+  return el?.closest?.('.win-body,.window,#viz-controls,.cb-toolbar,.slot-grid,#pads-grid,.scene-grid,.topbar,header,body') || document.body;
+}
+function visibleFocusableIn(container){
+  return Array.from(container.querySelectorAll(UI_FOCUS_SELECTOR)).filter(el=>{
+    ensureUIFocusable(el);
+    const cs=getComputedStyle(el);
+    const r=el.getBoundingClientRect();
+    return isUIFocusable(el) && cs.display!=='none' && cs.visibility!=='hidden' && r.width>0 && r.height>0;
+  });
+}
+function moveUIFocus(current,dir){
+  const items=visibleFocusableIn(getUIContainer(current));
+  if(!items.length)return;
+  let idx=Math.max(0,items.indexOf(current));
+  idx=(idx+dir+items.length)%items.length;
+  try{items[idx].focus({preventScroll:true})}catch{items[idx].focus()}
+}
+function activeUIFocus(){
+  const ae=document.activeElement;
+  return isUIFocusable(ae)?ae:null;
+}
+function handleUIFocusKeydown(e){
+  const el=activeUIFocus();
+  if(!el)return false;
+  if(e.code==='Escape'){
+    e.preventDefault();
+    try{el.blur()}catch{}
+    return true;
+  }
+  const tag=(el.tagName||'').toUpperCase();
+  const isButtonLike=tag==='BUTTON' || el.classList.contains('slot') || el.classList.contains('spad') || el.classList.contains('scene-btn') || el.classList.contains('viz-btn');
+  if(isButtonLike){
+    if(e.code==='Enter' || e.code==='Space'){ e.preventDefault(); el.click(); return true; }
+    if(e.code==='ArrowRight' || e.code==='ArrowDown'){ e.preventDefault(); moveUIFocus(el,1); return true; }
+    if(e.code==='ArrowLeft' || e.code==='ArrowUp'){ e.preventDefault(); moveUIFocus(el,-1); return true; }
+    if(e.code!=='Tab') return true;
+    return false;
+  }
+  if(tag==='INPUT'){
+    const type=(el.type||'').toLowerCase();
+    if(type==='range'){
+      if(e.code==='ArrowUp' || e.code==='PageUp'){ el.stepUp?.(); el.dispatchEvent(new Event('input',{bubbles:true})); return true; }
+      if(e.code==='ArrowDown' || e.code==='PageDown'){ el.stepDown?.(); el.dispatchEvent(new Event('input',{bubbles:true})); return true; }
+      if(e.code==='Home'){ el.value=el.min||el.value; el.dispatchEvent(new Event('input',{bubbles:true})); return true; }
+      if(e.code==='End'){ el.value=el.max||el.value; el.dispatchEvent(new Event('input',{bubbles:true})); return true; }
+      if(e.code!=='Tab') return true;
+      return false;
+    }
+    return e.code!=='Tab';
+  }
+  if(tag==='SELECT' || tag==='TEXTAREA') return e.code!=='Tab';
+  return false;
+}
+document.addEventListener('pointerdown',e=>{
+  const target=e.target.closest?.(UI_FOCUS_SELECTOR);
+  if(target){
+    ensureUIFocusable(target);
+    setTimeout(()=>{try{target.focus({preventScroll:true})}catch{try{target.focus()}catch{}}},0);
+  }
+},true);
+
 /* ===== GLOBAL KEYBOARD ===== */
 const downKeys=new Set();
 window.addEventListener('keydown',e=>{
-  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA')return;
-  if(downKeys.has(e.code))return;
-  downKeys.add(e.code);
+  if(handleUIFocusKeydown(e))return;
+  if(activeUIFocus()){
+    if(e.code==='Tab')return;
+    e.preventDefault();
+    return;
+  }
+  if(downKeys.has((e.shiftKey?'Shift+':'')+e.code))return;
+  downKeys.add((e.shiftKey?'Shift+':'')+e.code);
   if(e.code==='Backquote'){e.preventDefault();toggleKeyboardPiano();return}
   if(e.code==='Space'){e.preventDefault();$('#btn-sustain').click();return}
-  if(e.code==='Tab'){e.preventDefault();$('#btn-chroma').click();return}
   if(e.code==='Escape'){$('#color-modal').classList.remove('active');$('#help-modal').classList.remove('active');return}
   // ENTER: save illuminated keys to next empty pad
   if(e.code==='Enter'){e.preventDefault();saveLitToPad();return}
   // Ctrl/Cmd + Right Arrow: trigger next loaded pad (wraps to first)
   if((e.ctrlKey||e.metaKey)&&e.code==='ArrowRight'){e.preventDefault();triggerNextLoadedPad();return}
+  // Number keys now trigger sampler/unified pads directly (Shift+1..6 = pads 11..16)
+  const padKey=(e.shiftKey?'Shift+':'')+e.code;
+  const padIdx=PAD_TRIGGER_KEYS.indexOf(padKey);
+  if(padIdx>=0 && !e.ctrlKey && !e.metaKey && !e.altKey){e.preventDefault();padTrigger(padIdx);return}
   // PERFORMANCE MODE: only pad triggers via clean keyboard layout
   if(document.body.classList.contains('performance')){
     const PERF_MAP={
@@ -2653,12 +2749,11 @@ window.addEventListener('keydown',e=>{
     if(e.code==='Quote'){modWheelRecenter();return}
     return; // block other keys in performance mode
   }
-  // function keys for pads 1-8 (with shift = 9-16)
-  if(SAMPLER_F_KEYS.includes(e.code)){
-    e.preventDefault();
-    const idx=SAMPLER_F_KEYS.indexOf(e.code)+(e.shiftKey?8:0);
-    padTrigger(idx);
-    return;
+  // function keys now trigger chord slots
+  if(SLOT_KEYS.includes(e.code)&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
+    const i=SLOT_KEYS.indexOf(e.code);
+    const s=STATE.slots[i];
+    if(s){e.preventDefault();triggerSlotIndex(i);return}
   }
   // mod wheel — [ bend down, ] bend up (adjacent on Apple keyboard, freed from KB_NOTES)
   if(e.code==='BracketLeft'){e.preventDefault();modWheelKey(-1,true);return}
@@ -2667,12 +2762,6 @@ window.addEventListener('keydown',e=>{
   if(e.code==='Quote'){e.preventDefault();modWheelRecenter();return}
   // Visualizer toggle (Ctrl/Cmd+V)
   if(e.code==='KeyV'&&(e.ctrlKey||e.metaKey)){e.preventDefault();toggleVisualizer();return}
-  // slot triggers
-  if(SLOT_KEYS.includes(e.code)&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
-    const i=SLOT_KEYS.indexOf(e.code);
-    const s=STATE.slots[i];
-    if(s){triggerSlotIndex(i);return}
-  }
   // cycle slots with shift+,/.
   if(e.shiftKey&&e.code==='Comma'){
     e.preventDefault();
@@ -2712,9 +2801,10 @@ window.addEventListener('keydown',e=>{
   }
 });
 window.addEventListener('keyup',e=>{
+  downKeys.delete((e.shiftKey?'Shift+':'')+e.code);
   downKeys.delete(e.code);
   if(e.code==='Backquote')return;
-  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT'||e.target.tagName==='TEXTAREA')return;
+  if(activeUIFocus())return;
   if(e.code==='BracketLeft'){modWheelKey(-1,false);return}
   if(e.code==='BracketRight'){modWheelKey(1,false);return}
   if(document.body.classList.contains('performance'))return;
@@ -2843,8 +2933,9 @@ function modWheelLoop(){
       }
     }catch{}};
     if(STATE.activeNotes)for(const [,v] of STATE.activeNotes)apply(v);
-    for(const [,vs] of STATE.padPlayingVoices)for(const v of vs)apply(v);
-    for(const [,seq] of STATE.padPlayingSequences)seq.voices.forEach(apply);
+    for(const [,vs] of STATE.padPlayingVoices)for(const v of (vs.voices||[]))apply(v);
+    for(const [,seq] of STATE.padPlayingSequences)for(const v of (seq.allVoices||[]))apply(v);
+    applyPitchToActiveSamples();
     // update meter UI
     const meter=$('#mw-meter');if(meter)meter.textContent=(next>=0?'+':'')+next.toFixed(2)+' st';
     const thumb=$('#mw-thumb');if(thumb){const trk=$('#mw-track');if(trk){const h=trk.clientHeight-24;const ratio=(next+mw.rangeDown)/(mw.rangeUp+mw.rangeDown);thumb.style.top=clamp(h-ratio*h,0,h)+'px'}}
@@ -2998,7 +3089,7 @@ function buildVizControls(){
     <div class="viz-row"><label>PAN Y</label><input type="range" id="vc-ty" min="-30" max="30" step="0.5" value="${STATE.viz.cam.truckY}"><span class="v" id="vc-ty-v">${STATE.viz.cam.truckY.toFixed(0)}</span></div>
     <div class="viz-row"><label>YAW</label><input type="range" id="vc-yaw" min="-3.14" max="3.14" step="0.05" value="${STATE.viz.cam.yaw}"><span class="v" id="vc-yaw-v">${STATE.viz.cam.yaw.toFixed(2)}</span></div>
     <button class="viz-btn" style="width:100%;margin-top:4px" id="vc-recenter">⌖ RECENTER CAMERA</button>
-    <div style="font-family:VT323;font-size:11px;color:var(--dim);line-height:1.5;padding:5px 0">Q/E yaw · W/S pitch · A/D strafe · Z/X zoom · ←→↑↓ pan · 1-5 presets · R randomize</div>
+    <div style="font-family:VT323;font-size:11px;color:var(--dim);line-height:1.5;padding:5px 0">Q/E yaw · W/S pitch · A/D strafe · Z/X zoom · ←→↑↓ pan · 1-5 presets · R randomize<br>Touch: 1 finger rotate · 2 fingers pan · pinch zoom</div>
     <button class="viz-btn gold" style="width:100%;margin-top:5px" id="vc-rand">⟲ RANDOMIZE</button>`;
   c.innerHTML=html;
   c.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{vizSetScene(b.dataset.s);buildVizControls()});
@@ -3067,7 +3158,15 @@ function vizSetScene(id){
     crystal:vizSceneCrystal,beams:vizSceneBeams,vapor:vizSceneVapor
   }[id]||vizSceneCosmos;
   vizApplySceneEnvironment(id);
-  builder();
+  try{
+    builder();
+  }catch(err){
+    console.warn('Visualizer scene failed, falling back',id,err);
+    clearViz();
+    vizFallbackScene();
+  }
+  vizAddBackbone(id);
+  if(!viz3d.objs.length)vizFallbackScene();
   // Add center-focus mesh that pulses with audio (lives at world origin)
   const cg=new THREE.IcosahedronGeometry(2,1);
   const cm=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.7,wireframe:true});
@@ -3092,6 +3191,52 @@ function paletteColor(){
 }
 
 function rand(a,b){return a+Math.random()*(b-a)}
+function vizAddBackbone(id){
+  if(!viz3d)return;
+  const pal=paletteColor().map(c=>new THREE.Color(c));
+  const ring=new THREE.Mesh(
+    new THREE.TorusGeometry(10+(id.length%5)*2,0.18,10,72),
+    new THREE.MeshBasicMaterial({color:pal[0],transparent:true,opacity:0.16,blending:THREE.AdditiveBlending,depthWrite:false})
+  );
+  ring.rotation.x=Math.PI/2.2;
+  ring.position.y=-6+(id.length%4);
+  ring.userData.kind='backboneRing';
+  viz3d.scene.add(ring); viz3d.objs.push(ring);
+
+  const dustN=Math.max(220,Math.floor(520*STATE.viz.particleCount));
+  const g=new THREE.BufferGeometry();
+  const pos=new Float32Array(dustN*3), col=new Float32Array(dustN*3);
+  for(let i=0;i<dustN;i++){
+    pos[i*3]=rand(-70,70); pos[i*3+1]=rand(-34,34); pos[i*3+2]=rand(-70,70);
+    const c=pal[i%pal.length]; col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
+  }
+  g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  g.setAttribute('color',new THREE.BufferAttribute(col,3));
+  const pts=new THREE.Points(g,new THREE.PointsMaterial({size:0.28,vertexColors:true,transparent:true,opacity:0.42,blending:THREE.AdditiveBlending,depthWrite:false}));
+  pts.userData.kind='backboneDust';
+  viz3d.scene.add(pts); viz3d.objs.push(pts);
+
+  const floor=new THREE.GridHelper(120,16,pal[1].getHex(),pal[2].getHex());
+  floor.position.y=-18;
+  floor.userData.kind='backboneGrid';
+  viz3d.scene.add(floor); viz3d.objs.push(floor);
+}
+function vizFallbackScene(){
+  const pal=paletteColor().map(c=>new THREE.Color(c));
+  const g=new THREE.BufferGeometry();
+  const n=1800;
+  const pos=new Float32Array(n*3), col=new Float32Array(n*3);
+  for(let i=0;i<n;i++){
+    pos[i*3]=rand(-80,80); pos[i*3+1]=rand(-50,50); pos[i*3+2]=rand(-80,80);
+    const c=pal[i%pal.length]; col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
+  }
+  g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  g.setAttribute('color',new THREE.BufferAttribute(col,3));
+  const points=new THREE.Points(g,new THREE.PointsMaterial({size:0.5,vertexColors:true,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false}));
+  points.userData.kind='stars';
+  viz3d.scene.add(points); viz3d.objs.push(points);
+  vizAddBackbone('fallback');
+}
 
 function vizApplySceneEnvironment(id){
   if(!viz3d)return;
