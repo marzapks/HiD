@@ -28,7 +28,7 @@ document.addEventListener('touchend',e=>{const n=Date.now();if(n-__lastTouchEnd<
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
 html,body{height:100%;width:100%;background:var(--bg);color:var(--text);font-family:'Share Tech Mono',monospace;overflow:hidden;-webkit-font-smoothing:antialiased;user-select:none;-webkit-user-select:none;touch-action:manipulation;overscroll-behavior:none;filter:brightness(var(--brightness))}
-button,input,select{font-family:inherit;color:inherit}
+button,input,select{font-family:inherit;color:inherit} input[type=range]{touch-action:none}
 button{cursor:pointer;background:none;border:none;color:inherit;-webkit-user-select:none;user-select:none}
 input,select,textarea{user-select:text;-webkit-user-select:text}
 ::selection{background:var(--neon);color:#000}
@@ -132,7 +132,7 @@ select:focus{border-color:var(--neon);box-shadow:0 0 6px var(--neon)}
 .win-btn:hover{background:var(--neon);color:#000}
 .win-btn.close{border-color:#ff2255;color:#ff2255}
 .win-btn.close:hover{background:#ff2255;color:#000}
-.win-body{flex:1 1 auto;overflow:auto;padding:8px;min-height:0}
+.win-body{flex:1 1 auto;overflow:auto;padding:8px;min-height:0;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .win-resize{position:absolute;right:0;bottom:0;width:14px;height:14px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 50%,var(--neon) 50%,var(--neon) 60%,transparent 60%,transparent 70%,var(--neon) 70%,var(--neon) 80%,transparent 80%);opacity:.6}
 .win-resize:hover{opacity:1}
 
@@ -201,7 +201,7 @@ select:focus{border-color:var(--neon);box-shadow:0 0 6px var(--neon)}
 /* knobs */
 .knob-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:4px}
 .kn{display:flex;flex-direction:column;align-items:center;gap:2px}
-.kn-d{width:46px;height:46px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#1a1a2e,#04030a 70%);border:2px solid var(--stroke);position:relative;cursor:ns-resize;box-shadow:inset 0 0 10px rgba(0,255,213,.15)}
+.kn-d{touch-action:none;width:46px;height:46px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#1a1a2e,#04030a 70%);border:2px solid var(--stroke);position:relative;cursor:ns-resize;box-shadow:inset 0 0 10px rgba(0,255,213,.15)}
 .kn-d::before{content:"";position:absolute;top:4px;left:50%;width:3px;height:14px;background:var(--neon);transform:translateX(-50%);box-shadow:0 0 6px var(--neon);border-radius:2px}
 .kn-d:hover{border-color:var(--neon);box-shadow:0 0 12px var(--neon)}
 .kn-l{font-family:'VT323',monospace;font-size:10px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase}
@@ -324,7 +324,7 @@ body.piano-kbd-disabled #chroma{box-shadow:inset 0 0 0 1px rgba(255,0,170,.18)}
 .mw-track::before{top:50%}
 .mw-meter{font-family:'Press Start 2P',monospace;font-size:9px;color:var(--neon);text-shadow:0 0 5px var(--neon);text-align:center;letter-spacing:.1em;min-height:14px}
 .mw-row{display:flex;justify-content:space-between;align-items:center;font-family:'VT323',monospace;font-size:12px;color:var(--dim);gap:6px;width:100%}
-.mw-row input[type=range]{flex:1;height:3px;-webkit-appearance:none;appearance:none;background:var(--stroke);outline:none}
+.mw-row input[type=range]{flex:1;height:3px;-webkit-appearance:none;appearance:none;background:var(--stroke);outline:none;touch-action:none}
 .mw-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;background:var(--neon3);cursor:pointer;box-shadow:0 0 4px var(--neon3)}
 .mw-row input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;background:var(--neon3);cursor:pointer;box-shadow:0 0 4px var(--neon3);border:0}
 .mw-row .v{color:var(--neon);min-width:34px;text-align:right;font-size:11px}
@@ -356,7 +356,7 @@ body.piano-kbd-disabled #chroma{box-shadow:inset 0 0 0 1px rgba(255,0,170,.18)}
 .viz-controls.collapsed{transform:translateX(310px)}
 .viz-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:3px 0}
 .viz-row label{flex:1;color:var(--dim);font-size:12px;letter-spacing:.05em}
-.viz-row input[type=range]{flex:1;height:3px;-webkit-appearance:none;appearance:none;background:var(--stroke);outline:none;min-width:80px}
+.viz-row input[type=range]{flex:1;height:3px;-webkit-appearance:none;appearance:none;background:var(--stroke);outline:none;min-width:80px;touch-action:none}
 .viz-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:var(--neon);cursor:pointer;box-shadow:0 0 6px var(--neon)}
 .viz-row input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:var(--neon);cursor:pointer;box-shadow:0 0 6px var(--neon);border:0}
 .viz-row .v{color:var(--neon);min-width:36px;text-align:right;font-size:11px}
@@ -456,7 +456,7 @@ body.performance .perf-return{display:flex}
       <div class="field"><label>BANK</label>
         <select id="sel-bank"></select>
       </div>
-      <div class="field"><label>PATCH</label>
+      <button class="btn gold" id="btn-3d-sound" style="box-shadow:0 0 10px var(--neon),0 0 18px rgba(255,230,0,.25)">3D SOUND</button><div class="field"><label>PATCH</label>
         <button class="btn tiny patch-arrow" id="patch-prev">◀</button>
         <select id="sel-patch"></select>
         <button class="btn tiny patch-arrow" id="patch-next">▶</button>
@@ -544,6 +544,7 @@ let chorus={},phaser={},tremMod,tremGain,tremPath;
 let delayL,delayR,dlyFB,dlyMixWet,dlyMixDry;
 let revConv,revWet,revDry,comp,recordTap;
 let analyser=null,analyserData=null,analyserTime=null;
+let spatialFX=null;
 
 function makeDistCurve(amount){const k=amount*100,n=1024,c=new Float32Array(n);
   for(let i=0;i<n;i++){const x=i*2/n-1;c[i]=(3+k)*x*20*Math.PI/180/(Math.PI+k*Math.abs(x))}return c}
@@ -613,7 +614,23 @@ function initAudio(){
   analyserTime=new Uint8Array(analyser.fftSize);
   aRev.connect(comp).connect(recordTap);
   recordTap.connect(analyser);
-  recordTap.connect(kill).connect(master).connect(ctx.destination);
+  const spIn=ctx.createGain(), spDry=ctx.createGain(), spWet=ctx.createGain(), spOut=ctx.createGain();
+  const spPan=ctx.createStereoPanner();
+  const spDelay=ctx.createDelay(1.2);
+  const spFb=ctx.createGain();
+  const spLfo=ctx.createOscillator();
+  const spLfoGain=ctx.createGain();
+  const spTone=ctx.createBiquadFilter();
+  spTone.type='highshelf'; spTone.frequency.value=4200; spTone.gain.value=3;
+  const spConv=ctx.createConvolver(); spConv.buffer=makeImpulse(2.6,3.2);
+  spDry.gain.value=1; spWet.gain.value=0; spOut.gain.value=1; spPan.pan.value=0; spDelay.delayTime.value=0.22; spFb.gain.value=0.25; spLfo.frequency.value=0.16; spLfoGain.gain.value=0.35;
+  recordTap.connect(spDry).connect(spOut);
+  recordTap.connect(spTone).connect(spDelay).connect(spPan).connect(spConv).connect(spWet).connect(spOut);
+  spDelay.connect(spFb).connect(spDelay);
+  spLfo.connect(spLfoGain).connect(spPan.pan); spLfo.start();
+  spatialFX={enabled:false,mix:0,delay:0.22,feedback:0.25,spread:0.35,depth:0.35,focusX:0,focusY:0,mode:'headphones',
+    nodes:{spIn,spDry,spWet,spOut,spPan,spDelay,spFb,spLfo,spLfoGain,spTone,spConv}};
+  spOut.connect(kill).connect(master).connect(ctx.destination);
 }
 
 /* ===== PATCH BANKS (5 banks x 20 patches) ===== */
@@ -813,6 +830,7 @@ const STATE={
   padCaptureStart:0,           // ctx.currentTime when capture began
   padCaptureEvents:[],         // collected events during arm
   padCaptureTimer:null,        // timeout to auto-finalize capture
+  padCaptureWheelLast:null,   // last captured mod wheel semitones during armed recording
   padPlayingVoices:new Map(),  // padIdx -> [voice,voice,...] (sustained voices)
   padPlayingSequences:new Map(),// padIdx -> {raf,startAt,events,sustained}
   padSustainMode:true,        // when true, tap once = play+sustain, tap again = stop
@@ -1192,6 +1210,107 @@ $('#patch-prev').onclick=()=>{const n=BANKS[STATE.bank].patches.length;STATE.pat
 $('#patch-next').onclick=()=>{const n=BANKS[STATE.bank].patches.length;STATE.patchIdx=(STATE.patchIdx+1)%n;buildPatchSelect();updateTape();buildBankWindow()};
 
 /* ===== WINDOW MANAGER ===== */
+
+function applySpatialFX(){
+  if(!ctx||!spatialFX||!spatialFX.nodes)return;
+  const n=spatialFX.nodes;
+  n.spDry.gain.value=1-(spatialFX.mix||0)*0.6;
+  n.spWet.gain.value=spatialFX.enabled?(spatialFX.mix||0):0;
+  n.spDelay.delayTime.setTargetAtTime(spatialFX.delay||0.22,ctx.currentTime,0.04);
+  n.spFb.gain.setTargetAtTime(spatialFX.feedback||0.25,ctx.currentTime,0.04);
+  n.spPan.pan.setTargetAtTime(clamp((spatialFX.focusX||0)*Math.max(0.05,spatialFX.spread||0.35),-1,1),ctx.currentTime,0.04);
+  n.spLfoGain.gain.setTargetAtTime(spatialFX.enabled?(spatialFX.depth||0.35)*Math.max(0.05,spatialFX.spread||0.35):0,ctx.currentTime,0.04);
+  n.spTone.gain.setTargetAtTime((spatialFX.focusY||0)*8,ctx.currentTime,0.06);
+}
+function randomizeSpatialFX(){
+  if(!spatialFX)return;
+  spatialFX.enabled=true;
+  spatialFX.mix=Math.random()*0.8;
+  spatialFX.delay=0.08+Math.random()*0.52;
+  spatialFX.feedback=0.1+Math.random()*0.55;
+  spatialFX.spread=0.15+Math.random()*0.85;
+  spatialFX.depth=0.08+Math.random()*0.75;
+  spatialFX.focusX=-1+Math.random()*2;
+  spatialFX.focusY=-1+Math.random()*2;
+  spatialFX.mode=['headphones','stage','universal'][Math.floor(Math.random()*3)];
+  applySpatialFX();
+  buildSpatialWindow();
+}
+function drawSpatialPad(){
+  const c=document.getElementById('spatial-pad'); if(!c) return;
+  const x=c.getContext('2d'); const w=c.width=c.clientWidth; const h=c.height=c.clientHeight;
+  x.clearRect(0,0,w,h);
+  const g=x.createRadialGradient(w*0.5,h*0.5,10,w*0.5,h*0.5,Math.max(w,h)*0.6);
+  g.addColorStop(0,'rgba(0,255,213,0.14)'); g.addColorStop(1,'rgba(0,0,0,0)');
+  x.fillStyle=g; x.fillRect(0,0,w,h);
+  x.strokeStyle='rgba(0,255,213,.22)'; x.lineWidth=1;
+  for(let i=1;i<4;i++){ x.strokeRect(i*w/8,i*h/8,w-i*w/4,h-i*h/4); }
+  const px=(spatialFX.focusX*0.5+0.5)*w, py=(1-(spatialFX.focusY*0.5+0.5))*h;
+  x.beginPath(); x.arc(px,py,10,0,Math.PI*2); x.fillStyle='rgba(255,230,0,.9)'; x.fill();
+  x.beginPath(); x.arc(px,py,22,0,Math.PI*2); x.strokeStyle='rgba(255,230,0,.35)'; x.stroke();
+}
+function drawSpatialView(){
+  const c=document.getElementById('spatial-view'); if(!c) return;
+  const x=c.getContext('2d'); const w=c.width=c.clientWidth; const h=c.height=c.clientHeight;
+  x.clearRect(0,0,w,h); x.fillStyle='rgba(0,0,0,.5)'; x.fillRect(0,0,w,h);
+  x.strokeStyle='rgba(0,255,213,.18)'; x.lineWidth=1;
+  x.strokeRect(6,6,w-12,h-12);
+  const fx=(spatialFX.focusX*0.5+0.5), fy=(spatialFX.focusY*0.5+0.5);
+  if(spatialFX.mode==='headphones'){
+    x.strokeStyle='rgba(255,255,255,.5)';
+    x.beginPath(); x.arc(w*0.5,h*0.52,40,0,Math.PI*2); x.stroke();
+    x.strokeRect(w*0.25,h*0.34,16,52); x.strokeRect(w*0.69,h*0.34,16,52);
+    const px=w*(0.5 + (fx-0.5)*0.75), py=h*(0.72 - fy*0.4);
+    x.fillStyle='rgba(255,230,0,.9)'; x.beginPath(); x.arc(px,py,8,0,Math.PI*2); x.fill();
+  } else if(spatialFX.mode==='stage'){
+    x.strokeStyle='rgba(255,255,255,.4)';
+    x.strokeRect(w*0.18,h*0.22,w*0.64,h*0.42);
+    x.strokeRect(w*0.08,h*0.18,18,60); x.strokeRect(w*0.84,h*0.18,18,60);
+    x.beginPath(); x.moveTo(w*0.28,h*0.64); x.lineTo(w*0.72,h*0.64); x.stroke();
+    const px=w*(0.2+fx*0.6), py=h*(0.25+fy*0.32);
+    x.fillStyle='rgba(255,230,0,.9)'; x.beginPath(); x.arc(px,py,8,0,Math.PI*2); x.fill();
+  } else {
+    x.strokeStyle='rgba(255,255,255,.35)';
+    x.beginPath(); x.moveTo(w*0.5,18); x.lineTo(w*0.5,h-18); x.moveTo(18,h*0.5); x.lineTo(w-18,h*0.5); x.stroke();
+    const px=w*fx, py=h*(1-fy);
+    x.fillStyle='rgba(255,230,0,.9)'; x.beginPath(); x.arc(px,py,8,0,Math.PI*2); x.fill();
+  }
+}
+function buildSpatialWindow(){
+  const w=WIN.spatial;if(!w)return;
+  const body=w.el.querySelector('.win-body');
+  if(!spatialFX){ body.innerHTML='<div style="font-family:VT323;color:var(--dim)">Launch audio first.</div>'; return; }
+  body.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:6px">
+      <button class="btn tiny gold" id="spatial-toggle">${spatialFX.enabled?'ON':'OFF'}</button>
+      <div style="display:flex;gap:4px">
+        <button class="btn tiny ${spatialFX.mode==='headphones'?'on':''}" data-spm="headphones">HEAD</button>
+        <button class="btn tiny ${spatialFX.mode==='stage'?'on':''}" data-spm="stage">STAGE</button>
+        <button class="btn tiny ${spatialFX.mode==='universal'?'on':''}" data-spm="universal">UNI</button>
+      </div>
+      <button class="btn tiny warn" id="spatial-rand">🎲</button>
+    </div>
+    <canvas id="spatial-view" style="width:100%;height:120px;border:1px solid var(--stroke);background:#05050a;display:block;margin-bottom:6px"></canvas>
+    <canvas id="spatial-pad" style="width:100%;height:150px;border:1px solid var(--stroke);background:#05050a;display:block;margin-bottom:8px;touch-action:none"></canvas>
+    <div class="mw-row"><label>MIX</label><input type="range" id="sp-mix" min="0" max="1" step="0.01" value="${spatialFX.mix}"><span class="v">${Math.round(spatialFX.mix*100)}%</span></div>
+    <div class="mw-row"><label>DELAY</label><input type="range" id="sp-delay" min="0.02" max="0.8" step="0.01" value="${spatialFX.delay}"><span class="v">${spatialFX.delay.toFixed(2)}s</span></div>
+    <div class="mw-row"><label>FEEDBK</label><input type="range" id="sp-fb" min="0" max="0.85" step="0.01" value="${spatialFX.feedback}"><span class="v">${Math.round(spatialFX.feedback*100)}%</span></div>
+    <div class="mw-row"><label>SPREAD</label><input type="range" id="sp-spread" min="0" max="1" step="0.01" value="${spatialFX.spread}"><span class="v">${Math.round(spatialFX.spread*100)}%</span></div>
+    <div class="mw-row"><label>MOTION</label><input type="range" id="sp-depth" min="0" max="1" step="0.01" value="${spatialFX.depth}"><span class="v">${Math.round(spatialFX.depth*100)}%</span></div>
+    <div style="font-family:VT323;font-size:11px;color:var(--dim);margin-top:6px;line-height:1.35">Drag the yellow focal point to throw the sound left/right and front/back. Works on synth, pads, slots, and sampler through the master spatial bus.</div>`;
+  body.querySelector('#spatial-toggle').onclick=()=>{spatialFX.enabled=!spatialFX.enabled;applySpatialFX();buildSpatialWindow();};
+  body.querySelectorAll('[data-spm]').forEach(b=>b.onclick=()=>{spatialFX.mode=b.dataset.spm;buildSpatialWindow();});
+  body.querySelector('#spatial-rand').onclick=randomizeSpatialFX;
+  [['#sp-mix','mix'],['#sp-delay','delay'],['#sp-fb','feedback'],['#sp-spread','spread'],['#sp-depth','depth']].forEach(([sel,key])=>{
+    body.querySelector(sel).oninput=e=>{spatialFX[key]=+e.target.value;applySpatialFX();buildSpatialWindow();};
+  });
+  const pad=body.querySelector('#spatial-pad');
+  let drag=false;
+  const setXY=(cx,cy)=>{const r=pad.getBoundingClientRect(); spatialFX.focusX=clamp((cx-r.left)/r.width*2-1,-1,1); spatialFX.focusY=clamp((1-(cy-r.top)/r.height)*2-1,-1,1); applySpatialFX(); drawSpatialPad(); drawSpatialView();};
+  pad.addEventListener('pointerdown',e=>{drag=true; setXY(e.clientX,e.clientY); pad.setPointerCapture(e.pointerId)});
+  pad.addEventListener('pointermove',e=>{ if(!drag) return; setXY(e.clientX,e.clientY); });
+  pad.addEventListener('pointerup',e=>{ drag=false; try{pad.releasePointerCapture(e.pointerId)}catch{} });
+  drawSpatialPad(); drawSpatialView();
+}
 const WIN={};
 let zCounter=100;
 
@@ -1676,12 +1795,15 @@ function playSampleBuffer(buffer,vel=1){
   if(!buffer)return null;
   const src=ctx.createBufferSource();src.buffer=buffer;
   src.playbackRate.value=samplePlaybackRateForWheel();
-  const g=ctx.createGain();g.gain.value=vel;
+  const g=ctx.createGain();
+  const now=ctx.currentTime;
+  g.gain.setValueAtTime(0,now);
+  g.gain.linearRampToValueAtTime(Math.max(0,vel),now+0.004);
   src.connect(g).connect(fxIn);
   const node={src,g,baseRate:1};
   STATE.sampler.activeSources.add(node);
   src.onended=()=>{STATE.sampler.activeSources.delete(node);try{src.disconnect()}catch{};try{g.disconnect()}catch{}};
-  src.start();
+  src.start(now);
   return src;
 }
 
@@ -1700,6 +1822,7 @@ function padArmCapture(idx){
   STATE.padArmedRec=idx;
   STATE.padCaptureStart=0;          // will be set when first note arrives
   STATE.padCaptureEvents=[];
+  STATE.padCaptureWheelLast=null;
   buildPadsWindow();
   toast(`Pad ${idx+1} ARMED — play piano (held=shape, sequence=sequence)`);
 }
@@ -1707,17 +1830,24 @@ function padCancelCapture(){
   STATE.padArmedRec=-1;
   STATE.padCaptureStart=0;
   STATE.padCaptureEvents=[];
+  STATE.padCaptureWheelLast=null;
   if(STATE.padCaptureTimer){clearTimeout(STATE.padCaptureTimer);STATE.padCaptureTimer=null}
   buildPadsWindow();
 }
 function padCaptureNote(midi,onOff){
   if(STATE.padArmedRec<0)return;
-  if(!STATE.padCaptureStart)STATE.padCaptureStart=ctx.currentTime;
+  if(!STATE.padCaptureStart){
+    STATE.padCaptureStart=ctx.currentTime;
+    if(Math.abs(STATE.modWheel.active||0)>0.01){
+      STATE.padCaptureWheelLast=STATE.modWheel.active||0;
+      STATE.padCaptureEvents.push({t:0,type:'wheel',value:STATE.modWheel.active||0});
+    }
+  }
   const t=ctx.currentTime-STATE.padCaptureStart;
   STATE.padCaptureEvents.push({t,midi,type:onOff});
-  // Reset auto-finalize timer (1.6s after last activity)
+  // Reset auto-finalize timer (3.2s after last activity)
   if(STATE.padCaptureTimer)clearTimeout(STATE.padCaptureTimer);
-  STATE.padCaptureTimer=setTimeout(padFinalizeCapture,1600);
+  STATE.padCaptureTimer=setTimeout(padFinalizeCapture,3200);
 }
 function padFinalizeCapture(){
   const idx=STATE.padArmedRec;
@@ -1725,14 +1855,15 @@ function padFinalizeCapture(){
   const evs=STATE.padCaptureEvents.slice();
   // Detect shape vs sequence: if all 'on' events occurred within 200ms, treat as held shape
   const ons=evs.filter(e=>e.type==='on');
+  const wheelEvents=evs.filter(e=>e.type==='wheel');
   const last=evs[evs.length-1].t;
   const onsSpread=ons.length?(ons[ons.length-1].t-ons[0].t):0;
   let pad;
-  if(ons.length>=2&&onsSpread<0.2){
+  if(!wheelEvents.length && ons.length>=2&&onsSpread<0.2){
     // SHAPE: held simultaneously
     const notes=Array.from(new Set(ons.map(e=>e.midi))).sort((a,b)=>a-b);
     pad={kind:'shape',name:'SHAPE',notes,patchSnapshot:snapshotPatch(),sustain:STATE.padSustainMode};
-  } else if(ons.length===1&&onsSpread===0){
+  } else if(!wheelEvents.length && ons.length===1&&onsSpread===0){
     // single note still treat as shape with one note
     pad={kind:'shape',name:'NOTE '+nName(ons[0].midi)+octOf(ons[0].midi),notes:[ons[0].midi],patchSnapshot:snapshotPatch(),sustain:STATE.padSustainMode};
   } else {
@@ -1743,6 +1874,7 @@ function padFinalizeCapture(){
   STATE.padArmedRec=-1;
   STATE.padCaptureEvents=[];
   STATE.padCaptureStart=0;
+  STATE.padCaptureWheelLast=null;
   if(STATE.padCaptureTimer){clearTimeout(STATE.padCaptureTimer);STATE.padCaptureTimer=null}
   buildPadsWindow();
   toast(`Pad ${idx+1} = ${pad.kind.toUpperCase()} (${pad.kind==='shape'?pad.notes.length+' notes':ons.length+' events'})`);
@@ -1891,6 +2023,9 @@ function padPlay(idx,sustain){
             allVoices.delete(v);
           }
           if(list.length)activeByMidi.set(ev.midi,list); else activeByMidi.delete(ev.midi);
+        } else if(ev.type==='wheel'){
+          STATE.modWheel.target=0;
+          STATE.modWheel.active=ev.value||0;
         }
       },ev.t*1000);
       seq.timers.push(tm);
@@ -2690,6 +2825,10 @@ function handleUIFocusKeydown(e){
     if(e.code!=='Tab') return true;
     return false;
   }
+  if(e.code==='BracketLeft'){ e.preventDefault(); modWheelKey(-1,true); return true; }
+  if(e.code==='BracketRight'){ e.preventDefault(); modWheelKey(1,true); return true; }
+  if(e.code==='Backslash'){ e.preventDefault(); modWheelToggleHold(); return true; }
+  if(e.code==='Quote'){ e.preventDefault(); modWheelRecenter(); return true; }
   if(tag==='INPUT'){
     const type=(el.type||'').toLowerCase();
     if(type==='range'){
@@ -2775,8 +2914,6 @@ window.addEventListener('keydown',e=>{
   }
   // single-letter shortcuts
   if(e.code==='KeyL'&&!KB_NOTES[e.code]){loopArm();return}
-  if(e.code==='BracketLeft'&&!KB_NOTES[e.code]){$('#oct-down').click();return}
-  if(e.code==='BracketRight'&&!KB_NOTES[e.code]){$('#oct-up').click();return}
   // reserved letters
   if(e.code==='KeyK'&&!e.repeat){loopStopReset();return}
   if(e.code==='Minus'){$('#trans-down').click();return}
@@ -2834,9 +2971,10 @@ function initApp(){
   makeWindow('sampler','PADS / SAMPLER','',{x:80,y:40,w:460,h:Math.min(440,dh-50)});
   makeWindow('loop','LOOP RECORDER','',{x:Math.max(20,dw-700),y:40,w:300,h:300});
   makeWindow('modwheel','MOD WHEEL','',{x:Math.max(540,dw-300),y:Math.min(280,dh-280),w:240,h:260});
+  makeWindow('spatial','3D SOUND','',{x:Math.max(180,dw-420),y:Math.max(40,dh-380),w:320,h:420});
   // Build window contents
   buildBankWindow();buildFXWindow();buildSoundDesignWindow();buildChordBankWindow();
-  buildSlotsWindow();buildPadsWindow();buildLoopWindow();buildModWheelWindow();
+  buildSlotsWindow();buildPadsWindow();buildLoopWindow();buildModWheelWindow();buildSpatialWindow();
   // Build launcher buttons
   const lb=$('#launcher-bar');
   const items=[
@@ -2847,13 +2985,15 @@ function initApp(){
     {id:'slots',label:'SLOTS'},
     {id:'sampler',label:'PADS / SAMPLER'},
     {id:'loop',label:'LOOP / EXPORT'},
-    {id:'modwheel',label:'MOD WHEEL'}
+    {id:'modwheel',label:'MOD WHEEL'},
+    {id:'spatial',label:'3D SOUND'}
   ];
   for(const it of items){
     const b=document.createElement('button');b.className='launcher-btn';b.dataset.w=it.id;b.textContent=it.label;
     b.onclick=()=>toggleWindow(it.id);
     lb.appendChild(b);
   }
+  const btn3d=document.getElementById('btn-3d-sound'); if(btn3d) btn3d.onclick=()=>toggleWindow('spatial');
   // Default open windows
   toggleWindow('chords',true);
   toggleWindow('slots',true);
@@ -2861,6 +3001,7 @@ function initApp(){
   toggleWindow('modwheel',true);
   // Apply FX baseline
   applyFXState();
+  applySpatialFX();
   // Master vol baseline
   master.gain.value=parseFloat($('#master-vol').value);
   $('#master-val').textContent=Math.round(master.gain.value*100);
@@ -2894,17 +3035,26 @@ function initApp(){
 function modWheelKey(direction,down){
   const mw=STATE.modWheel;
   if(mw.holdMode){
-    // HOLD: keydown jumps to extreme and locks (re-pressing same direction or pressing opposite snaps instantly)
     if(down){
       mw.target=direction;
     }
-    // ignore keyup in hold mode (stays where it is)
   } else {
-    // SPRING: keydown bends, keyup recenters
     mw.target=down?direction:0;
   }
+  recordPadWheelIfNeeded((mw.target>=0?mw.rangeUp:mw.rangeDown)*mw.target);
 }
-function modWheelRecenter(){STATE.modWheel.target=0;STATE.modWheel.active=0}
+function modWheelRecenter(){STATE.modWheel.target=0;STATE.modWheel.active=0;recordPadWheelIfNeeded(0)}
+function recordPadWheelIfNeeded(value){
+  if(STATE.padArmedRec<0)return;
+  if(!STATE.padCaptureStart)STATE.padCaptureStart=ctx.currentTime;
+  const v=Math.round((value||0)*100)/100;
+  if(STATE.padCaptureWheelLast===null || Math.abs(v-STATE.padCaptureWheelLast)>=0.08){
+    STATE.padCaptureWheelLast=v;
+    STATE.padCaptureEvents.push({t:Math.max(0,ctx.currentTime-STATE.padCaptureStart),type:'wheel',value:v});
+    if(STATE.padCaptureTimer)clearTimeout(STATE.padCaptureTimer);
+    STATE.padCaptureTimer=setTimeout(padFinalizeCapture,3200);
+  }
+}
 function modWheelToggleHold(){
   STATE.modWheel.holdMode=!STATE.modWheel.holdMode;
   // when leaving hold mode, recenter
@@ -2936,6 +3086,7 @@ function modWheelLoop(){
     for(const [,vs] of STATE.padPlayingVoices)for(const v of (vs.voices||[]))apply(v);
     for(const [,seq] of STATE.padPlayingSequences)for(const v of (seq.allVoices||[]))apply(v);
     applyPitchToActiveSamples();
+    recordPadWheelIfNeeded(next);
     // update meter UI
     const meter=$('#mw-meter');if(meter)meter.textContent=(next>=0?'+':'')+next.toFixed(2)+' st';
     const thumb=$('#mw-thumb');if(thumb){const trk=$('#mw-track');if(trk){const h=trk.clientHeight-24;const ratio=(next+mw.rangeDown)/(mw.rangeUp+mw.rangeDown);thumb.style.top=clamp(h-ratio*h,0,h)+'px'}}
