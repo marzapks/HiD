@@ -288,6 +288,14 @@ body.piano-kbd-disabled #chroma{box-shadow:inset 0 0 0 1px rgba(255,0,170,.18)}
 .toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#000;border:1px solid var(--neon3);color:var(--neon3);padding:9px 16px;font-family:'VT323',monospace;font-size:15px;letter-spacing:.1em;text-shadow:0 0 6px var(--neon3);box-shadow:0 0 14px var(--neon3);z-index:9500;display:none}
 .toast.show{display:block;animation:tIn .25s ease-out}
 @keyframes tIn{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
+#pad-countdown-overlay{
+  position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.34);backdrop-filter:blur(2px);
+  font-family:'Press Start 2P',monospace;font-size:clamp(44px,16vw,140px);
+  color:var(--neon3);text-shadow:0 0 10px var(--neon3),0 0 32px rgba(255,230,0,.45);
+  letter-spacing:.08em;z-index:10001;opacity:0;pointer-events:none;transition:opacity .16s ease;
+}
+#pad-countdown-overlay.show{opacity:1}
 
 /* ============ MINIMIZE / WINDOW EXTRAS ============ */
 .window.minimized{height:auto !important;min-height:0 !important}
@@ -502,6 +510,7 @@ body.performance .perf-return{display:flex}
 </div></div>
 
 <div class="toast" id="toast"></div>
+<div id="pad-countdown-overlay" aria-hidden="true"></div>
 
 <!-- Visualizer fullscreen overlay -->
 <div id="visualizer">
@@ -804,6 +813,10 @@ const STATE={
   padSoloMode:true,           // when true, only one pad at a time; when false, pads stack
   padEditingIdx:-1,           // pad currently selected for sound editing
   padCycleIdx:-1,             // last pad used for keyboard pad-cycling
+  padCycleMode:'loop',        // loop | pingpong
+  padCycleDir:1,              // 1 forward, -1 backward when pingpong cycling
+  padCountdownTimer:null,
+  padCountdownValue:0,
   // === MOD WHEEL ===
   modWheel:{value:0,rangeUp:2,rangeDown:2,glide:0.06,active:0,target:0,raf:null,holdMode:false},
   // === VISUALIZER ===
@@ -947,10 +960,14 @@ function releaseNote(midi){
 function releaseAllSmooth(){for(const [,v] of STATE.activeNotes)v.fadeOut(28);
   STATE.activeNotes.clear();
   $$('.wkey, .bkey, .chroma-key').forEach(k=>k.classList.remove('lit'));}
-function killAllVoices(){for(const [,v] of STATE.activeNotes){try{v.fadeOut(8)}catch{}}
+function killAllVoices(){
+  padCancelCountdown();
+  padStopAll(true);
+  for(const [,v] of STATE.activeNotes){try{v.fadeOut(8)}catch{}}
   STATE.activeNotes.clear();
   $$('.wkey, .bkey, .chroma-key').forEach(k=>k.classList.remove('lit','shape'));
-  STATE.shapeNotes.clear();}
+  STATE.shapeNotes.clear();
+}
 
 function playChord(chord){
   const baseRoot=60+(chord.rootIdx??0);
@@ -969,6 +986,8 @@ function playChord(chord){
 }
 
 function stopAll(){
+  padCancelCountdown();
+  padStopAll(true);
   releaseAllSmooth();
   STATE.activeChord=null;updateTape();
 }
@@ -1602,13 +1621,63 @@ function padFinalizeCapture(){
 function getLoadedPadIndices(){
   return STATE.pads.map((p,i)=>p?i:-1).filter(i=>i>=0);
 }
-function triggerNextLoadedPad(){
+function getNextLoadedPadIndex(){
   const loaded=getLoadedPadIndices();
-  if(!loaded.length){toast('No loaded pads');return}
+  if(!loaded.length)return -1;
+  if(loaded.length===1)return loaded[0];
   let pos=loaded.indexOf(STATE.padCycleIdx);
-  if(pos<0)pos=0;else pos=(pos+1)%loaded.length;
-  const idx=loaded[pos];
+  if(pos<0){
+    STATE.padCycleDir=1;
+    return loaded[0];
+  }
+  if(STATE.padCycleMode==='pingpong'){
+    if(pos>=loaded.length-1)STATE.padCycleDir=-1;
+    else if(pos<=0)STATE.padCycleDir=1;
+    const nextPos=pos+STATE.padCycleDir;
+    return loaded[Math.max(0,Math.min(loaded.length-1,nextPos))];
+  }
+  return loaded[(pos+1)%loaded.length];
+}
+function triggerNextLoadedPad(){
+  const idx=getNextLoadedPadIndex();
+  if(idx<0){toast('No loaded pads');return}
   padTrigger(idx);
+}
+function setPadCycleMode(mode){
+  STATE.padCycleMode=mode==='pingpong'?'pingpong':'loop';
+  STATE.padCycleDir=1;
+  buildPadsWindow();
+}
+function renderPadCountdown(value=null){
+  const el=$('#pad-countdown-overlay'); if(!el)return;
+  if(value==null){
+    el.classList.remove('show');
+    el.textContent='';
+    return;
+  }
+  el.textContent=String(value);
+  el.classList.add('show');
+}
+function padCancelCountdown(){
+  if(STATE.padCountdownTimer){clearInterval(STATE.padCountdownTimer);STATE.padCountdownTimer=null;}
+  STATE.padCountdownValue=0;
+  renderPadCountdown(null);
+}
+function padCountdownNext(){
+  if(STATE.padCountdownTimer)return;
+  const idx=getNextLoadedPadIndex();
+  if(idx<0){toast('No loaded pads');return}
+  STATE.padCountdownValue=3;
+  renderPadCountdown(STATE.padCountdownValue);
+  STATE.padCountdownTimer=setInterval(()=>{
+    STATE.padCountdownValue-=1;
+    if(STATE.padCountdownValue<=0){
+      padCancelCountdown();
+      triggerNextLoadedPad();
+      return;
+    }
+    renderPadCountdown(STATE.padCountdownValue);
+  },1000);
 }
 
 function padTrigger(idx){
@@ -1645,6 +1714,8 @@ function padTrigger(idx){
 
 function padPlay(idx,sustain){
   const p=STATE.pads[idx];if(!p)return;
+  padCancelCountdown();
+  padStop(idx,true);
   // SOLO mode: fade out other pads when starting a new sustained one
   if(sustain&&STATE.padSoloMode){
     for(const [otherIdx] of STATE.padPlayingVoices){
@@ -1659,37 +1730,43 @@ function padPlay(idx,sustain){
     for(const m of p.notes){
       const v=startVoice(m+STATE.octave*12+STATE.transpose,0.78,p.patchSnapshot);
       voices.push(v);
-      const padEl=document.querySelectorAll('#pads-grid .spad')[idx];
-      if(padEl&&sustain)padEl.classList.add('sustained');
     }
-    STATE.padPlayingVoices.set(idx,voices);
-    if(!sustain){
-      // schedule release after a generous time so envelope tail handles it naturally
-      setTimeout(()=>padStop(idx,false),900);
-    }
-  } else if(p.kind==='sequence'){
-    // Schedule events relative to ctx.currentTime
-    const startT=ctx.currentTime;
-    const voices=new Map();
     const padEl=document.querySelectorAll('#pads-grid .spad')[idx];
     if(padEl&&sustain)padEl.classList.add('sustained');
-    const seq={voices,timers:[],sustain};
+    STATE.padPlayingVoices.set(idx,{voices,timers:[]});
+    if(!sustain){
+      const timer=setTimeout(()=>padStop(idx,true),900);
+      STATE.padPlayingVoices.get(idx).timers.push(timer);
+    }
+  } else if(p.kind==='sequence'){
+    const activeByMidi=new Map();
+    const allVoices=new Set();
+    const padEl=document.querySelectorAll('#pads-grid .spad')[idx];
+    if(padEl&&sustain)padEl.classList.add('sustained');
+    const seq={activeByMidi,allVoices,timers:[],sustain};
     for(const ev of p.events){
       const tm=setTimeout(()=>{
         if(ev.type==='on'){
           const real=ev.midi+STATE.octave*12+STATE.transpose;
           const v=startVoice(real,0.78,p.patchSnapshot);
-          voices.set(ev.midi,v);
+          allVoices.add(v);
+          const list=activeByMidi.get(ev.midi)||[];
+          list.push(v);
+          activeByMidi.set(ev.midi,list);
         } else if(ev.type==='off'){
-          const v=voices.get(ev.midi);
-          if(v){v.release();voices.delete(ev.midi)}
+          const list=activeByMidi.get(ev.midi)||[];
+          const v=list.shift();
+          if(v){
+            try{v.release()}catch{}
+            allVoices.delete(v);
+          }
+          if(list.length)activeByMidi.set(ev.midi,list); else activeByMidi.delete(ev.midi);
         }
       },ev.t*1000);
       seq.timers.push(tm);
     }
-    // Schedule end-of-sequence release (unless sustain mode keeps last notes ringing)
     if(!sustain){
-      const end=setTimeout(()=>padStop(idx,false),(p.duration+0.1)*1000);
+      const end=setTimeout(()=>padStop(idx,true),(p.duration+0.12)*1000);
       seq.timers.push(end);
     }
     STATE.padPlayingSequences.set(idx,seq);
@@ -1701,17 +1778,19 @@ function padStop(idx,smooth=true){
   if(padEl)padEl.classList.remove('sustained','playing');
   const vs=STATE.padPlayingVoices.get(idx);
   if(vs){
-    for(const v of vs){if(smooth)v.fadeOut(120);else v.release()}
+    (vs.timers||[]).forEach(clearTimeout);
+    for(const v of (vs.voices||[])){try{smooth?v.fadeOut(120):v.release()}catch{}}
     STATE.padPlayingVoices.delete(idx);
   }
   const seq=STATE.padPlayingSequences.get(idx);
   if(seq){
-    seq.timers.forEach(clearTimeout);
-    seq.voices.forEach(v=>{if(smooth)v.fadeOut(120);else v.release()});
+    (seq.timers||[]).forEach(clearTimeout);
+    Array.from(seq.allVoices||[]).forEach(v=>{try{smooth?v.fadeOut(120):v.release()}catch{}});
     STATE.padPlayingSequences.delete(idx);
   }
 }
 function padStopAll(smooth=true){
+  padCancelCountdown();
   for(const idx of [...STATE.padPlayingVoices.keys()])padStop(idx,smooth);
   for(const idx of [...STATE.padPlayingSequences.keys()])padStop(idx,smooth);
 }
@@ -1752,12 +1831,16 @@ function buildPadsWindow(){
       <button class="btn tiny ${STATE.padSustainMode?'on':''}" id="pads-sustain-mode">SUSTAIN: ${STATE.padSustainMode?'ON':'OFF'}</button>
       <button class="btn tiny ${STATE.padSoloMode?'on':''}" id="pads-solo-mode">${STATE.padSoloMode?'SOLO':'STACK'}</button>
       <button class="btn tiny ${STATE.padArmedRec>=0?'warn on':''}" id="pads-arm-toggle">${STATE.padArmedRec>=0?'CANCEL ARM':'ARM…'}</button>
-      <button class="btn tiny" id="pads-stop-all">■ STOP</button>
+      <button class="btn tiny ${STATE.padCycleMode==='pingpong'?'on':''}" id="pads-cycle-mode">CYCLE: ${STATE.padCycleMode==='pingpong'?'PING-PONG':'LOOP'}</button>
+      <button class="btn tiny gold" id="pads-next">NEXT</button>
+      <button class="btn tiny gold" id="pads-countdown">3s COUNT</button>
+      <button class="btn tiny warn" id="pads-stop-all">■ STOP LIVE</button>
       <button class="btn tiny warn" id="pads-clear">CLEAR</button>
     </div>
     <div style="padding:4px 7px;font-family:VT323;font-size:11px;color:var(--dim);letter-spacing:.05em;line-height:1.4">
       EMPTY pad = arm capture · play piano · held=SHAPE, sequential=SEQ<br>
-      LOADED: TAP=trigger · DRAG audio=load · SHIFT-TAP=clear · LONG-PRESS=edit
+      LOADED: TAP=trigger · DRAG audio=load · SHIFT-TAP=clear · LONG-PRESS=edit<br>
+      NEXT follows loaded pads only · COUNT shows 3, 2, 1 silently then advances
     </div>
     <div class="sample-pads" id="pads-grid"></div>
     <div id="pad-edit-panel"></div>
@@ -1768,12 +1851,18 @@ function buildPadsWindow(){
   body.querySelector('#pads-from-lit').onclick=saveLitToPad;
   body.querySelector('#pads-sustain-mode').onclick=()=>{STATE.padSustainMode=!STATE.padSustainMode;buildPadsWindow()};
   body.querySelector('#pads-solo-mode').onclick=()=>{STATE.padSoloMode=!STATE.padSoloMode;toast(STATE.padSoloMode?'SOLO mode':'STACK mode');buildPadsWindow()};
+  body.querySelector('#pads-cycle-mode').onclick=()=>{
+    setPadCycleMode(STATE.padCycleMode==='loop'?'pingpong':'loop');
+    toast('Pad cycle '+(STATE.padCycleMode==='loop'?'LOOP':'PING-PONG'));
+  };
+  body.querySelector('#pads-next').onclick=()=>triggerNextLoadedPad();
+  body.querySelector('#pads-countdown').onclick=()=>padCountdownNext();
   body.querySelector('#pads-arm-toggle').onclick=()=>{
     if(STATE.padArmedRec>=0){padCancelCapture();return}
     const idx=STATE.pads.findIndex(p=>!p);
     if(idx>=0)padArmCapture(idx);else toast('All pads full');
   };
-  body.querySelector('#pads-stop-all').onclick=()=>padStopAll(true);
+  body.querySelector('#pads-stop-all').onclick=()=>stopAll();
   body.querySelector('#pads-clear').onclick=()=>{
     if(!confirm('Clear all 16 pads?'))return;
     padStopAll(false);
@@ -1867,8 +1956,11 @@ function buildPadEditPanel(host,idx,p){
     <div style="border-top:2px solid var(--neon3);background:rgba(255,230,0,0.04);padding:6px 8px">
       <div style="display:flex;justify-content:space-between;align-items:center;font-family:'Press Start 2P',monospace;font-size:9px;color:var(--neon3);letter-spacing:.1em;text-shadow:0 0 5px var(--neon3);margin-bottom:5px">
         <span>▣ PAD ${idx+1} · ${p.name}</span>
-        <button class="btn tiny" id="pe-rename" style="font-size:9px">RENAME</button>
-        <button class="btn tiny warn" id="pe-close" style="font-size:9px">×</button>
+        <div style="display:flex;gap:4px;align-items:center">
+          <button class="btn tiny gold" id="pe-stop" style="font-size:9px">STOP</button>
+          <button class="btn tiny" id="pe-rename" style="font-size:9px">RENAME</button>
+          <button class="btn tiny warn" id="pe-close" style="font-size:9px">×</button>
+        </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;font-family:VT323;font-size:11px">
         <div class="mw-row"><label>ATK</label><input type="range" id="pe-a" min="0.001" max="2" step="0.005" value="${ps.amp.a}"><span class="v">${ps.amp.a.toFixed(2)}s</span></div>
@@ -1906,6 +1998,7 @@ function buildPadEditPanel(host,idx,p){
   w2('pe-s','amp.s',v=>v.toFixed(2));w2('pe-r','amp.r',v=>v.toFixed(2)+'s');
   w2('pe-co','filt.co',v=>(v|0)+'');w2('pe-q','filt.q',v=>v.toFixed(1));
   w2('pe-dr','mod.drive',v=>v.toFixed(2));w2('pe-pan','mod.pan',v=>v.toFixed(2));
+  host.querySelector('#pe-stop').onclick=()=>padStop(idx,true);
   host.querySelector('#pe-close').onclick=()=>{STATE.padEditingIdx=-1;buildPadsWindow()};
   host.querySelector('#pe-rename').onclick=()=>{const n=prompt('Pad name?',p.name);if(n){p.name=n.slice(0,18);buildPadsWindow()}};
 }
@@ -2118,6 +2211,8 @@ $('#master-vol').addEventListener('input',e=>{
 });
 $('#kill-btn').addEventListener('click',()=>{
   if(!ctx)return;
+  padCancelCountdown();
+  padStopAll(true);
   killAllVoices();
   loopStopReset();
   // brief duck of kill node to slam everything quiet then restore
@@ -2235,7 +2330,9 @@ const SHORTCUTS_DATA=[
     ['F1 – F8','Trigger pads 1–8'],
     ['Shift+F1 – Shift+F8','Trigger pads 9–16'],
     ['Enter ⏎','Save lit keys → next empty pad'],
-    ['Ctrl/Cmd + →','Next loaded pad (wraps to first)'],
+    ['Ctrl/Cmd + →','Next loaded pad'],
+    ['Pad window','Cycle mode: loop / ping-pong'],
+    ['Pad window','NEXT or silent 3s COUNT'],
     ['Long-press pad','Open per-pad sound editor'],
     ['Shift-click pad','Clear pad'],
     ['Right-click pad','Toggle pad sustain'],
