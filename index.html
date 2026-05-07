@@ -4011,3 +4011,540 @@ window.addEventListener('keydown',e=>{
 </script>
 </body>
 </html>
+
+<script>
+
+/* ==== AUGMENTED PATCH LAYER ==== */
+(function(){
+  const style=document.createElement('style');
+  style.textContent=`
+  #win-spatial .win-body, #win-spatial .win-body *{font-size:15px}
+  #win-spatial .mw-row label, #win-spatial .sp-row label{font-size:14px;color:var(--text)}
+  #win-spatial .btn.tiny{font-size:14px;padding:6px 9px}
+  #spatial-view-big,#spatial-motion{width:100%;display:block;border:1px solid var(--stroke);background:#05050a;border-radius:10px}
+  .sp-toolbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+  .sp-points{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+  .sp-chip{padding:6px 10px;border:1px solid var(--stroke);border-radius:999px;background:rgba(0,0,0,.35);cursor:pointer}
+  .sp-chip.active{border-color:var(--neon3);box-shadow:0 0 10px rgba(255,230,0,.28);color:var(--neon3)}
+  .sp-row{display:flex;align-items:center;gap:8px;padding:4px 0}
+  .sp-row input[type=range]{flex:1;touch-action:none}
+  .sp-row .v{min-width:52px;text-align:right;color:var(--neon)}
+  .piano-slide-btn{margin-left:4px}
+  .piano-wrap.slide-enabled{overflow-x:auto;touch-action:pan-x pan-y}
+  .piano-wrap.slide-enabled #piano{min-width:1800px}
+  #undo-redo-wrap{display:inline-flex;gap:6px}
+  `;
+  document.head.appendChild(style);
+
+  // ---------- undo/redo ----------
+  const undoState={stack:[],redo:[],limit:40,restoring:false};
+  function clonePad(p){
+    if(!p) return null;
+    const out={...p};
+    if(p.patchSnapshot) out.patchSnapshot={...p.patchSnapshot,amp:{...(p.patchSnapshot.amp||{})},filt:{...(p.patchSnapshot.filt||{})},mod:{...(p.patchSnapshot.mod||{})}};
+    if(p.events) out.events=p.events.map(e=>({...e}));
+    if(p.notes) out.notes=p.notes.slice();
+    return out;
+  }
+  function captureUndoState(){
+    if(undoState.restoring || !window.STATE) return;
+    const snap={
+      bank:STATE.bank,patchIdx:STATE.patchIdx,octave:STATE.octave,transpose:STATE.transpose,
+      slots:STATE.slots.map(s=>s?JSON.parse(JSON.stringify(s)):null),
+      pads:STATE.pads.map(clonePad),
+      spatial:window.spatialFX?JSON.parse(JSON.stringify({
+        enabled:spatialFX.enabled,mix:spatialFX.mix,delay:spatialFX.delay,feedback:spatialFX.feedback,spread:spatialFX.spread,depth:spatialFX.depth,
+        focusX:spatialFX.focusX,focusY:spatialFX.focusY,mode:spatialFX.mode,variation:spatialFX.variation||0.5,
+        cosmicMix:spatialFX.cosmicMix||0.2,glitterMix:spatialFX.glitterMix||0.2,leadMix:spatialFX.leadMix||0.1,masterThrow:spatialFX.masterThrow||0.5,
+        points:(spatialFX.points||[]).map(p=>({...p}))
+      })):null,
+      pianoSlide:!!STATE.pianoSlideMode
+    };
+    const last=undoState.stack[undoState.stack.length-1];
+    const ser=JSON.stringify(snap, (k,v)=>k==='buffer'?undefined:v);
+    if(last && last.ser===ser) return;
+    undoState.stack.push({ser,snap});
+    if(undoState.stack.length>undoState.limit) undoState.stack.shift();
+    undoState.redo.length=0;
+    updateUndoRedoUI();
+  }
+  function applyUndoSnapshot(snap){
+    if(!snap) return;
+    undoState.restoring=true;
+    try{
+      STATE.bank=snap.bank; STATE.patchIdx=snap.patchIdx; STATE.octave=snap.octave; STATE.transpose=snap.transpose;
+      STATE.slots=snap.slots.map(s=>s?JSON.parse(JSON.stringify(s)):null);
+      STATE.pads=snap.pads.map(clonePad);
+      if(window.spatialFX && snap.spatial){
+        Object.assign(spatialFX,snap.spatial);
+        spatialFX.points=(snap.spatial.points||[]).map(p=>({...p}));
+      }
+      STATE.pianoSlideMode=!!snap.pianoSlide;
+      if(window.buildBankSelect) buildBankSelect();
+      if(window.buildSlotsWindow) buildSlotsWindow();
+      if(window.buildPadsWindow) buildPadsWindow();
+      if(window.buildSpatialWindow) buildSpatialWindow();
+      if(window.buildPiano) buildPiano();
+      const ov=document.getElementById('oct-val'); if(ov) ov.textContent=String(STATE.octave);
+      const tv=document.getElementById('trans-val'); if(tv) tv.textContent=String(STATE.transpose);
+      const wrap=document.getElementById('piano-host')?.querySelector('.piano-wrap'); if(wrap) wrap.classList.toggle('slide-enabled',!!STATE.pianoSlideMode);
+    } finally {
+      undoState.restoring=false;
+      updateUndoRedoUI();
+    }
+  }
+  function doUndo(){
+    if(undoState.stack.length<2) return;
+    const current=undoState.stack.pop();
+    undoState.redo.push(current);
+    applyUndoSnapshot(undoState.stack[undoState.stack.length-1].snap);
+  }
+  function doRedo(){
+    const next=undoState.redo.pop(); if(!next) return;
+    undoState.stack.push(next);
+    applyUndoSnapshot(next.snap);
+  }
+  function updateUndoRedoUI(){
+    const u=document.getElementById('btn-undo'), r=document.getElementById('btn-redo');
+    if(u) u.disabled=undoState.stack.length<2;
+    if(r) r.disabled=!undoState.redo.length;
+  }
+  window.addEventListener('keydown',e=>{
+    if((e.ctrlKey||e.metaKey) && !e.shiftKey && e.code==='KeyZ'){ e.preventDefault(); doUndo(); }
+    if(((e.ctrlKey||e.metaKey) && e.code==='KeyY') || ((e.ctrlKey||e.metaKey) && e.shiftKey && e.code==='KeyZ')){ e.preventDefault(); doRedo(); }
+  }, true);
+  function installUndoButtons(){
+    const hdr=document.querySelector('header .topbar') || document.querySelector('header');
+    if(!hdr || document.getElementById('btn-undo')) return;
+    const anchor=document.getElementById('btn-save');
+    const wrap=document.createElement('span'); wrap.id='undo-redo-wrap';
+    wrap.innerHTML='<button class="btn" id="btn-undo" title="Undo">↶ UNDO</button><button class="btn" id="btn-redo" title="Redo">↷ REDO</button>';
+    anchor?.parentNode.insertBefore(wrap, anchor);
+    document.getElementById('btn-undo').onclick=doUndo;
+    document.getElementById('btn-redo').onclick=doRedo;
+    updateUndoRedoUI();
+  }
+
+  // ---------- piano slide ----------
+  function installPianoSlide(){
+    const octField=document.getElementById('oct-up')?.parentNode;
+    if(octField && !document.getElementById('piano-slide-toggle')){
+      const btn=document.createElement('button');
+      btn.className='btn tiny piano-slide-btn'; btn.id='piano-slide-toggle'; btn.textContent='SLIDE KEYS';
+      btn.onclick=()=>{
+        STATE.pianoSlideMode=!STATE.pianoSlideMode;
+        const wrap=document.getElementById('piano-host')?.querySelector('.piano-wrap');
+        if(wrap) wrap.classList.toggle('slide-enabled',!!STATE.pianoSlideMode);
+        captureUndoState();
+      };
+      octField.appendChild(btn);
+      const left=document.createElement('button'); left.className='btn tiny piano-slide-btn'; left.textContent='◀';
+      const right=document.createElement('button'); right.className='btn tiny piano-slide-btn'; right.textContent='▶';
+      left.onclick=()=>{ const wrap=document.getElementById('piano-host')?.querySelector('.piano-wrap'); if(wrap) wrap.scrollBy({left:-180,behavior:'smooth'}); };
+      right.onclick=()=>{ const wrap=document.getElementById('piano-host')?.querySelector('.piano-wrap'); if(wrap) wrap.scrollBy({left:180,behavior:'smooth'}); };
+      octField.appendChild(left); octField.appendChild(right);
+    }
+  }
+
+  // ---------- improve chord slot handoff ----------
+  const origTriggerSlotIndex=window.triggerSlotIndex;
+  window.triggerSlotIndex=function(idx){
+    if(idx<0) return;
+    if(window.cancelPendingChordStart) cancelPendingChordStart();
+    if(window.releaseAllSmooth) releaseAllSmooth();
+    if(window.padStopAll) padStopAll(true);
+    setTimeout(()=>origTriggerSlotIndex(idx),8);
+  };
+
+  // ---------- capture fixes ----------
+  const origSnapshotPatch=window.snapshotPatch;
+  window.snapshotPatch=function(){
+    const s=origSnapshotPatch?origSnapshotPatch():{};
+    s.captureOctave=STATE.octave;
+    s.captureTranspose=STATE.transpose;
+    return s;
+  };
+  window.recordPadWheelIfNeeded=function(value){
+    if(STATE.padArmedRec<0) return;
+    if(!ctx) return;
+    if(!STATE.padCaptureStart) STATE.padCaptureStart=ctx.currentTime;
+    const v=Math.round((value||0)*100)/100;
+    if(STATE.padCaptureWheelLast===null || Math.abs(v-STATE.padCaptureWheelLast)>=0.03){
+      STATE.padCaptureWheelLast=v;
+      STATE.padCaptureEvents.push({t:Math.max(0,ctx.currentTime-STATE.padCaptureStart),type:'wheel',value:v});
+      if(STATE.padCaptureTimer) clearTimeout(STATE.padCaptureTimer);
+      STATE.padCaptureTimer=setTimeout(padFinalizeCapture,4800);
+    }
+  };
+  const origPadCaptureNote=window.padCaptureNote;
+  window.padCaptureNote=function(midi,onOff){
+    if(STATE.padArmedRec>=0 && !STATE.padCaptureStart && ctx){
+      STATE.padCaptureStart=ctx.currentTime;
+      STATE.padCaptureEvents.push({t:0,type:'wheel',value:STATE.modWheel.active||0});
+      STATE.padCaptureWheelLast=STATE.modWheel.active||0;
+    }
+    if(origPadCaptureNote) origPadCaptureNote(midi,onOff);
+    if(STATE.padCaptureTimer){ clearTimeout(STATE.padCaptureTimer); STATE.padCaptureTimer=setTimeout(padFinalizeCapture,4800); }
+  };
+  const origPadFinalizeCapture=window.padFinalizeCapture;
+  window.padFinalizeCapture=function(){
+    if(origPadFinalizeCapture) origPadFinalizeCapture();
+    const idx=STATE.padArmedRec;
+    // original resets padArmedRec; find last written pad
+    for(let i=0;i<STATE.pads.length;i++){
+      const p=STATE.pads[i];
+      if(p && p.patchSnapshot && p.patchSnapshot.captureOctave===undefined){
+        p.patchSnapshot.captureOctave=STATE.octave;
+        p.patchSnapshot.captureTranspose=STATE.transpose;
+      }
+    }
+    captureUndoState();
+  };
+
+  // ---------- spatialFX expansion ----------
+  function ensureSpatialState(){
+    if(!window.spatialFX) return;
+    spatialFX.points = spatialFX.points || [{id:'master',x:spatialFX.focusX||0,y:spatialFX.focusY||0,z:0,level:0.8,spread:spatialFX.spread||0.35,motion:spatialFX.depth||0.35,enabled:true,type:'master'}];
+    spatialFX.selectedPointId = spatialFX.selectedPointId || spatialFX.points[0].id;
+    spatialFX.variation = spatialFX.variation ?? 0.55;
+    spatialFX.cosmicMix = spatialFX.cosmicMix ?? 0.28;
+    spatialFX.glitterMix = spatialFX.glitterMix ?? 0.18;
+    spatialFX.leadMix = spatialFX.leadMix ?? 0.12;
+    spatialFX.masterThrow = spatialFX.masterThrow ?? 0.5;
+    spatialFX.pointCounter = spatialFX.pointCounter || 1;
+    spatialFX._motionPhase = spatialFX._motionPhase || 0;
+    spatialFX._lastNoteSig = spatialFX._lastNoteSig || '';
+    spatialFX._pointNodes = spatialFX._pointNodes || new Map();
+  }
+  function midiPool(){
+    let arr=[];
+    if(STATE.activeNotes && STATE.activeNotes.size) arr=[...STATE.activeNotes.keys()];
+    else if(STATE.activeChord){
+      if(STATE.activeChord.customNotes) arr=STATE.activeChord.customNotes.slice();
+      else if(Array.isArray(STATE.activeChord.ints)) arr=STATE.activeChord.ints.map(i=>60+(STATE.activeChord.rootIdx||0)+i);
+    }
+    if(!arr.length) arr=[60,64,67];
+    return arr.sort((a,b)=>a-b);
+  }
+  function currentScaleDegrees(){
+    const arr=midiPool();
+    return arr.map(m=>440*Math.pow(2,(m-69)/12));
+  }
+  function pointPanFor(p){
+    return Math.max(-1,Math.min(1, (p.x||0) * (0.35 + (p.spread||0.3)*0.65) ));
+  }
+  function createPointNode(p){
+    if(!ctx || !window.fxIn) return null;
+    const out=ctx.createGain(); out.gain.value=0;
+    const pan=ctx.createStereoPanner(); pan.pan.value=pointPanFor(p);
+    const delay=ctx.createDelay(1.4); delay.delayTime.value=0.08 + ((p.z||0)+1)*0.12;
+    const fb=ctx.createGain(); fb.gain.value=0.18 + (p.motion||0)*0.18;
+    const filt=ctx.createBiquadFilter(); filt.type='bandpass'; filt.frequency.value=1800; filt.Q.value=0.7;
+    const sparkle=ctx.createGain(); sparkle.gain.value=0;
+    const lead=ctx.createGain(); lead.gain.value=0;
+    const noiseBuf=ctx.createBuffer(1, Math.max(2048,ctx.sampleRate*0.12), ctx.sampleRate);
+    const d=noiseBuf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*Math.exp(-i/d.length*6);
+    const noise=ctx.createBufferSource(); noise.buffer=noiseBuf; noise.loop=true;
+    const nF=ctx.createBiquadFilter(); nF.type='highpass'; nF.frequency.value=2500;
+    const osc1=ctx.createOscillator(); osc1.type='triangle';
+    const osc2=ctx.createOscillator(); osc2.type='sine';
+    const osc3=ctx.createOscillator(); osc3.type='sawtooth';
+    const lfo=ctx.createOscillator(); lfo.frequency.value=0.07 + Math.random()*0.25;
+    const lfoG=ctx.createGain(); lfoG.gain.value=0.35;
+    noise.connect(nF).connect(sparkle).connect(filt);
+    osc1.connect(lead); osc2.connect(lead); osc3.connect(lead);
+    lead.connect(filt);
+    filt.connect(delay).connect(pan).connect(out).connect(fxIn);
+    delay.connect(fb).connect(delay);
+    lfo.connect(lfoG); lfoG.connect(pan.pan);
+    osc1.start(); osc2.start(); osc3.start(); noise.start(); lfo.start();
+    return {p,out,pan,delay,fb,filt,sparkle,lead,osc1,osc2,osc3,lfo,noise,nF};
+  }
+  function destroyPointNode(node){
+    if(!node) return;
+    ['osc1','osc2','osc3','lfo','noise'].forEach(k=>{ try{ node[k].stop(); }catch{} });
+    [node.out,node.pan,node.delay,node.fb,node.filt,node.sparkle,node.lead,node.nF].forEach(n=>{ try{n.disconnect()}catch{} });
+  }
+  function syncPointNodes(){
+    ensureSpatialState();
+    const ids=new Set((spatialFX.points||[]).map(p=>p.id));
+    for(const [id,node] of spatialFX._pointNodes.entries()){
+      if(!ids.has(id)){ destroyPointNode(node); spatialFX._pointNodes.delete(id); }
+    }
+    for(const p of spatialFX.points){
+      if(p.type==='master') continue;
+      if(!spatialFX._pointNodes.has(p.id)) spatialFX._pointNodes.set(p.id, createPointNode(p));
+    }
+  }
+  function updatePointSound(node,p,force){
+    if(!node || !ctx) return;
+    const freqs=currentScaleDegrees();
+    const seed=(p.seed||0.5);
+    const base=freqs[Math.floor(((p.voiceIndex||0)%freqs.length+freqs.length)%freqs.length)] || 220;
+    const variant=1 + ((spatialFX.variation||0.5)-0.5)*0.5;
+    const dreamy=spatialFX.cosmicMix||0.2, glitter=spatialFX.glitterMix||0.2, leadMix=spatialFX.leadMix||0.1;
+    node.pan.pan.setTargetAtTime(pointPanFor(p), ctx.currentTime, 0.08);
+    node.delay.delayTime.setTargetAtTime(0.05 + ((p.z||0)+1)*0.16 + dreamy*0.12, ctx.currentTime, 0.08);
+    node.fb.gain.setTargetAtTime(Math.min(0.75,0.12 + (p.motion||0.3)*0.25 + dreamy*0.18), ctx.currentTime, 0.08);
+    node.filt.frequency.setTargetAtTime(800 + base*variant*2.3 + glitter*2200, ctx.currentTime, 0.08);
+    node.sparkle.gain.setTargetAtTime((p.enabled?1:0)*(0.001 + glitter*0.018*(p.level||0.8)), ctx.currentTime, 0.08);
+    node.lead.gain.setTargetAtTime((p.enabled?1:0)*(0.004 + leadMix*0.03*(p.level||0.8)), ctx.currentTime, 0.08);
+    node.osc1.frequency.setTargetAtTime(base*(1 + (seed-0.5)*0.01), ctx.currentTime, 0.05);
+    node.osc2.frequency.setTargetAtTime(base*2*(1 + (p.motion||0.3)*0.02), ctx.currentTime, 0.05);
+    node.osc3.frequency.setTargetAtTime(base*(0.5 + (dreamy*1.5)), ctx.currentTime, 0.05);
+  }
+
+  const origApplySpatialFX=window.applySpatialFX;
+  window.applySpatialFX=function(){
+    ensureSpatialState();
+    if(origApplySpatialFX) origApplySpatialFX();
+    if(!ctx || !window.spatialFX) return;
+    syncPointNodes();
+    const enabledMix=spatialFX.enabled ? (spatialFX.mix||0) : 0;
+    if(spatialFX.nodes){
+      spatialFX.nodes.spWet.gain.setTargetAtTime(enabledMix, ctx.currentTime, 0.08);
+      spatialFX.nodes.spDry.gain.setTargetAtTime(1-Math.min(1,enabledMix*0.65), ctx.currentTime, 0.08);
+      spatialFX.nodes.spDelay.delayTime.setTargetAtTime(spatialFX.delay||0.22, ctx.currentTime, 0.08);
+      spatialFX.nodes.spFb.gain.setTargetAtTime(spatialFX.feedback||0.25, ctx.currentTime, 0.08);
+      spatialFX.nodes.spPan.pan.setTargetAtTime((spatialFX.focusX||0)*(spatialFX.masterThrow||0.5), ctx.currentTime, 0.08);
+      spatialFX.nodes.spLfoGain.gain.setTargetAtTime((spatialFX.depth||0.35)*0.8, ctx.currentTime, 0.08);
+      spatialFX.nodes.spTone.gain.setTargetAtTime(2 + (spatialFX.glitterMix||0.2)*8, ctx.currentTime, 0.08);
+    }
+    for(const p of spatialFX.points){
+      const node=spatialFX._pointNodes.get(p.id); if(node) updatePointSound(node,p);
+    }
+  };
+
+  function addSpatialPoint(dup){
+    ensureSpatialState();
+    const base=dup || spatialFX.points.find(p=>p.id===spatialFX.selectedPointId) || spatialFX.points[0];
+    const p={id:'pt'+(++spatialFX.pointCounter),x:(base?.x||0)+(Math.random()*0.4-0.2),y:(base?.y||0)+(Math.random()*0.4-0.2),z:Math.max(-1,Math.min(1,(base?.z||0)+(Math.random()*0.4-0.2))),
+      level:base?.level||0.8,spread:base?.spread||0.35,motion:base?.motion||0.35,enabled:true,type:'point',seed:Math.random(),voiceIndex:Math.floor(Math.random()*7)};
+    spatialFX.points.push(p); spatialFX.selectedPointId=p.id; applySpatialFX(); buildSpatialWindow(); captureUndoState();
+  }
+  function removeSelectedPoint(){
+    ensureSpatialState();
+    const id=spatialFX.selectedPointId;
+    if(id==='master') return;
+    spatialFX.points=spatialFX.points.filter(p=>p.id!==id);
+    spatialFX.selectedPointId=(spatialFX.points[0]||{}).id||'master';
+    applySpatialFX(); buildSpatialWindow(); captureUndoState();
+  }
+  function duplicateSelectedPoint(){
+    const base=spatialFX.points.find(p=>p.id===spatialFX.selectedPointId);
+    if(base) addSpatialPoint({...base});
+  }
+  function randomizeEnhancedSpatial(){
+    ensureSpatialState();
+    spatialFX.enabled=true;
+    spatialFX.mix=0.22+Math.random()*0.6;
+    spatialFX.delay=0.05+Math.random()*0.55;
+    spatialFX.feedback=0.1+Math.random()*0.55;
+    spatialFX.spread=0.15+Math.random()*0.8;
+    spatialFX.depth=0.1+Math.random()*0.8;
+    spatialFX.variation=0.2+Math.random()*0.8;
+    spatialFX.cosmicMix=Math.random()*0.8;
+    spatialFX.glitterMix=Math.random()*0.7;
+    spatialFX.leadMix=Math.random()*0.45;
+    spatialFX.masterThrow=Math.random();
+    spatialFX.mode=['headphones','stage','universal'][Math.floor(Math.random()*3)];
+    const count=2+Math.floor(Math.random()*4);
+    spatialFX.points=[{id:'master',x:-1+Math.random()*2,y:-1+Math.random()*2,z:0,level:0.9,spread:spatialFX.spread,motion:spatialFX.depth,enabled:true,type:'master'}];
+    for(let i=0;i<count;i++) addSpatialPoint({x:-1+Math.random()*2,y:-1+Math.random()*2,z:-1+Math.random()*2,level:0.45+Math.random()*0.55,spread:0.1+Math.random()*0.9,motion:0.1+Math.random()*0.9,enabled:true,seed:Math.random(),voiceIndex:i});
+    spatialFX.selectedPointId=spatialFX.points[0].id;
+    applySpatialFX(); buildSpatialWindow(); captureUndoState();
+  }
+  window.randomizeSpatialFX=randomizeEnhancedSpatial;
+
+  function selectedPoint(){
+    ensureSpatialState();
+    return spatialFX.points.find(p=>p.id===spatialFX.selectedPointId) || spatialFX.points[0];
+  }
+  function drawBigSpatial(){
+    const c=document.getElementById('spatial-view-big'); if(!c) return;
+    const x=c.getContext('2d'); const w=c.width=c.clientWidth; const h=c.height=c.clientHeight;
+    x.clearRect(0,0,w,h);
+    const grd=x.createLinearGradient(0,0,w,h); grd.addColorStop(0,'rgba(0,255,213,.08)'); grd.addColorStop(1,'rgba(255,0,170,.08)');
+    x.fillStyle='#05050a'; x.fillRect(0,0,w,h); x.fillStyle=grd; x.fillRect(0,0,w,h);
+    x.strokeStyle='rgba(255,255,255,.08)'; for(let i=1;i<6;i++){ x.beginPath(); x.moveTo(i*w/6,0); x.lineTo(i*w/6,h); x.stroke(); x.beginPath(); x.moveTo(0,i*h/6); x.lineTo(w,i*h/6); x.stroke(); }
+    const t=performance.now()*0.001;
+    if(spatialFX.mode==='headphones'){
+      x.strokeStyle='rgba(255,255,255,.5)'; x.lineWidth=2;
+      x.beginPath(); x.arc(w*.5,h*.5,Math.min(w,h)*0.18,0,Math.PI*2); x.stroke();
+      x.strokeRect(w*.23,h*.28,24,h*.24); x.strokeRect(w*.69,h*.28,24,h*.24);
+    } else if(spatialFX.mode==='stage'){
+      x.strokeStyle='rgba(255,255,255,.38)'; x.strokeRect(w*.18,h*.18,w*.64,h*.36); x.strokeRect(w*.08,h*.16,22,72); x.strokeRect(w*.84,h*.16,22,72);
+      x.beginPath(); x.moveTo(w*.25,h*.72); x.lineTo(w*.75,h*.72); x.stroke();
+    } else {
+      x.strokeStyle='rgba(255,255,255,.3)'; x.beginPath(); x.moveTo(w*.5,18); x.lineTo(w*.5,h-18); x.moveTo(18,h*.5); x.lineTo(w-18,h*.5); x.stroke();
+    }
+    const fft=(window.analyserData||[]); const bars=Math.min(80, fft.length||0);
+    if(bars){
+      for(let i=0;i<bars;i++){
+        const v=(fft[i]||0)/255; const bx=i/bars*w;
+        x.fillStyle='rgba(0,255,213,'+(0.06+v*0.45)+')'; x.fillRect(bx,h-8-v*h*0.25,Math.max(2,w/bars-1),v*h*0.25);
+      }
+    }
+    (spatialFX.points||[]).forEach((p,idx)=>{
+      const sel=p.id===spatialFX.selectedPointId;
+      const px=(p.x*.5+.5)*w, py=(1-(p.y*.5+.5))*h;
+      const zz=(p.z||0); const r=sel?14:8+((p.level||0.7)*6);
+      x.beginPath(); x.arc(px,py,r+Math.sin(t*2+idx)*2,0,Math.PI*2);
+      x.fillStyle=sel?'rgba(255,230,0,.95)':(p.enabled?'rgba(122,207,255,.92)':'rgba(120,120,120,.45)'); x.fill();
+      x.beginPath(); x.arc(px,py,r+10+(zz*6),0,Math.PI*2); x.strokeStyle=sel?'rgba(255,230,0,.35)':'rgba(0,255,213,.25)'; x.stroke();
+      const dx=Math.cos(t*(0.7+(p.motion||0.2))+idx)*30*(p.spread||0.2), dy=Math.sin(t*(0.9+(p.motion||0.2))+idx)*20*(p.motion||0.2);
+      x.beginPath(); x.moveTo(px,py); x.lineTo(px+dx,py+dy); x.strokeStyle='rgba(255,255,255,.18)'; x.stroke();
+    });
+  }
+  function drawMotionSpatial(){
+    const c=document.getElementById('spatial-motion'); if(!c) return;
+    const x=c.getContext('2d'); const w=c.width=c.clientWidth; const h=c.height=c.clientHeight;
+    x.clearRect(0,0,w,h); x.fillStyle='#04050a'; x.fillRect(0,0,w,h);
+    const t=performance.now()*0.001;
+    const freqs=currentScaleDegrees();
+    (spatialFX.points||[]).forEach((p,idx)=>{
+      const hue=idx===0?55:180+idx*35;
+      x.strokeStyle='hsla('+hue+',90%,65%,0.7)'; x.lineWidth=2;
+      x.beginPath();
+      for(let i=0;i<w;i+=4){
+        const ang=i/w*Math.PI*6 + t*(0.4+(p.motion||0.3)*2);
+        const y=h*.5 + Math.sin(ang + idx)*((10+idx*2)+(p.level||0.8)*28) + Math.sin(ang*0.35+freqs[idx%freqs.length]/300)*12;
+        if(i===0) x.moveTo(i,y); else x.lineTo(i,y);
+      }
+      x.stroke();
+    });
+  }
+  let spatialAnim=0;
+  function spatialAnimLoop(){
+    cancelAnimationFrame(spatialAnim);
+    const step=()=>{ drawBigSpatial(); drawMotionSpatial(); spatialAnim=requestAnimationFrame(step); };
+    step();
+  }
+
+  const origBuildSpatialWindow=window.buildSpatialWindow;
+  window.buildSpatialWindow=function(){
+    ensureSpatialState();
+    if(!window.WIN || !WIN.spatial){ if(origBuildSpatialWindow) origBuildSpatialWindow(); return; }
+    const w=WIN.spatial; w.el.style.width='520px'; w.el.style.height='720px';
+    const body=w.el.querySelector('.win-body'); if(!body) return;
+    const sel=selectedPoint();
+    body.innerHTML=`
+      <div class="sp-toolbar">
+        <button class="btn tiny gold" id="spatial-toggle-big">${spatialFX.enabled?'ON':'OFF'}</button>
+        <button class="btn tiny ${spatialFX.mode==='headphones'?'on':''}" data-spm="headphones">HEAD</button>
+        <button class="btn tiny ${spatialFX.mode==='stage'?'on':''}" data-spm="stage">STAGE</button>
+        <button class="btn tiny ${spatialFX.mode==='universal'?'on':''}" data-spm="universal">GENERAL</button>
+        <button class="btn tiny warn" id="spatial-rand-big">🎲 RANDOM</button>
+      </div>
+      <canvas id="spatial-view-big" style="height:240px"></canvas>
+      <canvas id="spatial-motion" style="height:120px;margin-top:8px"></canvas>
+      <div style="margin:8px 0 4px;color:var(--neon3);font-family:'Press Start 2P',monospace;font-size:10px">SOUND POINTS</div>
+      <div class="sp-toolbar">
+        <button class="btn tiny" id="sp-add">＋ ADD</button>
+        <button class="btn tiny" id="sp-dup">⧉ DUP</button>
+        <button class="btn tiny warn" id="sp-del">－ DELETE</button>
+      </div>
+      <div class="sp-points" id="sp-points"></div>
+      <canvas id="spatial-pad" style="height:220px;border:1px solid var(--stroke);background:#05050a;display:block;margin-bottom:8px;touch-action:none"></canvas>
+      <div class="sp-row"><label>OVERALL MIX</label><input type="range" id="sp-mix" min="0" max="1" step="0.01" value="${spatialFX.mix}"><span class="v">${Math.round(spatialFX.mix*100)}%</span></div>
+      <div class="sp-row"><label>DELAY</label><input type="range" id="sp-delay" min="0.02" max="0.8" step="0.01" value="${spatialFX.delay}"><span class="v">${spatialFX.delay.toFixed(2)}s</span></div>
+      <div class="sp-row"><label>VARIATION</label><input type="range" id="sp-variation" min="0" max="1" step="0.01" value="${spatialFX.variation}"><span class="v">${Math.round(spatialFX.variation*100)}%</span></div>
+      <div class="sp-row"><label>COSMIC</label><input type="range" id="sp-cosmic" min="0" max="1" step="0.01" value="${spatialFX.cosmicMix}"><span class="v">${Math.round(spatialFX.cosmicMix*100)}%</span></div>
+      <div class="sp-row"><label>GLITTER</label><input type="range" id="sp-glitter" min="0" max="1" step="0.01" value="${spatialFX.glitterMix}"><span class="v">${Math.round(spatialFX.glitterMix*100)}%</span></div>
+      <div class="sp-row"><label>LEAD POP</label><input type="range" id="sp-lead" min="0" max="1" step="0.01" value="${spatialFX.leadMix}"><span class="v">${Math.round(spatialFX.leadMix*100)}%</span></div>
+      <div class="sp-row"><label>MASTER THROW</label><input type="range" id="sp-throw" min="0" max="1" step="0.01" value="${spatialFX.masterThrow}"><span class="v">${Math.round(spatialFX.masterThrow*100)}%</span></div>
+      <div style="margin-top:10px;color:var(--neon3);font-family:'Press Start 2P',monospace;font-size:10px">SELECTED POINT / OVERALL</div>
+      <div class="sp-row"><label>POINT LEVEL</label><input type="range" id="sp-level" min="0" max="1" step="0.01" value="${sel.level||0.8}"><span class="v">${Math.round((sel.level||0.8)*100)}%</span></div>
+      <div class="sp-row"><label>POINT SPREAD</label><input type="range" id="sp-spread" min="0" max="1" step="0.01" value="${sel.spread||spatialFX.spread||0.35}"><span class="v">${Math.round((sel.spread||spatialFX.spread||0.35)*100)}%</span></div>
+      <div class="sp-row"><label>POINT MOTION</label><input type="range" id="sp-depth" min="0" max="1" step="0.01" value="${sel.motion||spatialFX.depth||0.35}"><span class="v">${Math.round((sel.motion||spatialFX.depth||0.35)*100)}%</span></div>
+      <div style="font-size:13px;line-height:1.45;color:var(--dim);margin-top:8px">Tap a point to select it. Tap empty space to create a new throwable element. Tap the selected chip again to toggle it on/off. The generated dreamy/cosmic/glitter elements retune to the currently playing notes or chord and follow new chord-slot changes.</div>
+    `;
+    const pointsHost=body.querySelector('#sp-points');
+    spatialFX.points.forEach((p,i)=>{
+      const b=document.createElement('button'); b.className='sp-chip'+(p.id===spatialFX.selectedPointId?' active':''); b.textContent=(p.type==='master'?'MIX':'P'+i)+(p.enabled===false?' OFF':'');
+      b.onclick=()=>{ if(spatialFX.selectedPointId===p.id){ p.enabled=!p.enabled; } spatialFX.selectedPointId=p.id; applySpatialFX(); buildSpatialWindow(); captureUndoState(); };
+      pointsHost.appendChild(b);
+    });
+    body.querySelector('#spatial-toggle-big').onclick=()=>{spatialFX.enabled=!spatialFX.enabled; applySpatialFX(); buildSpatialWindow(); captureUndoState();};
+    body.querySelector('#spatial-rand-big').onclick=randomizeEnhancedSpatial;
+    body.querySelector('#sp-add').onclick=()=>addSpatialPoint();
+    body.querySelector('#sp-dup').onclick=duplicateSelectedPoint;
+    body.querySelector('#sp-del').onclick=removeSelectedPoint;
+    body.querySelectorAll('[data-spm]').forEach(b=>b.onclick=()=>{ spatialFX.mode=b.dataset.spm; buildSpatialWindow(); });
+    [['#sp-mix','mix'],['#sp-delay','delay'],['#sp-variation','variation'],['#sp-cosmic','cosmicMix'],['#sp-glitter','glitterMix'],['#sp-lead','leadMix'],['#sp-throw','masterThrow']].forEach(([sel2,key])=>{
+      body.querySelector(sel2).oninput=e=>{ spatialFX[key]=+e.target.value; applySpatialFX(); };
+      body.querySelector(sel2).onchange=captureUndoState;
+    });
+    [['#sp-level','level'],['#sp-spread','spread'],['#sp-depth','motion']].forEach(([sel2,key])=>{
+      body.querySelector(sel2).oninput=e=>{ const p=selectedPoint(); p[key]=+e.target.value; applySpatialFX(); drawBigSpatial(); };
+      body.querySelector(sel2).onchange=captureUndoState;
+    });
+    const pad=body.querySelector('#spatial-pad');
+    const drawPad=()=>{
+      const x=pad.getContext('2d'); const w2=pad.width=pad.clientWidth, h2=pad.height=pad.clientHeight;
+      x.clearRect(0,0,w2,h2); x.fillStyle='#05050a'; x.fillRect(0,0,w2,h2);
+      x.strokeStyle='rgba(0,255,213,.16)'; for(let i=1;i<5;i++){ x.strokeRect(i*w2/10,i*h2/10,w2-i*w2/5,h2-i*h2/5); }
+      spatialFX.points.forEach((p,idx)=>{
+        const px=(p.x*.5+.5)*w2, py=(1-(p.y*.5+.5))*h2, sel2=p.id===spatialFX.selectedPointId;
+        x.beginPath(); x.arc(px,py,sel2?14:9,0,Math.PI*2); x.fillStyle=sel2?'rgba(255,230,0,.95)':(p.enabled===false?'rgba(120,120,120,.4)':'rgba(0,255,213,.85)'); x.fill();
+        x.beginPath(); x.arc(px,py,20+((p.z||0)+1)*6,0,Math.PI*2); x.strokeStyle='rgba(255,255,255,.18)'; x.stroke();
+      });
+    };
+    let dragId=null;
+    const hit=(cx,cy)=>{
+      const r=pad.getBoundingClientRect();
+      const x=(cx-r.left), y=(cy-r.top);
+      for(const p of spatialFX.points){
+        const px=(p.x*.5+.5)*r.width, py=(1-(p.y*.5+.5))*r.height;
+        if(Math.hypot(px-x,py-y)<20) return p;
+      }
+      return null;
+    };
+    const setPoint=(p,cx,cy)=>{
+      const r=pad.getBoundingClientRect();
+      p.x=Math.max(-1,Math.min(1, (cx-r.left)/r.width*2-1));
+      p.y=Math.max(-1,Math.min(1, (1-(cy-r.top)/r.height)*2-1));
+      applySpatialFX(); drawPad();
+    };
+    pad.onpointerdown=e=>{
+      const p=hit(e.clientX,e.clientY);
+      if(p){ spatialFX.selectedPointId=p.id; dragId=p.id; buildSpatialWindow(); return; }
+      addSpatialPoint({x:0,y:0,z:0,level:0.7,spread:0.4,motion:0.4,enabled:true,seed:Math.random(),voiceIndex:Math.floor(Math.random()*7)});
+      const np=selectedPoint(); setPoint(np,e.clientX,e.clientY); dragId=np.id;
+      drawPad();
+    };
+    pad.onpointermove=e=>{ if(!dragId) return; const p=spatialFX.points.find(pp=>pp.id===dragId); if(p) setPoint(p,e.clientX,e.clientY); };
+    pad.onpointerup=()=>{ dragId=null; captureUndoState(); };
+    drawPad(); spatialAnimLoop(); applySpatialFX();
+  };
+
+  // ---------- help update ----------
+  const origBuildHelpContent=window.buildHelpContent;
+  window.buildHelpContent=function(){
+    if(origBuildHelpContent) origBuildHelpContent();
+    const host=document.getElementById('help-content');
+    if(host && !host.innerHTML.includes('UNDO')){
+      host.innerHTML += `<div style="margin-top:12px;border-top:1px solid var(--stroke);padding-top:10px">
+        <div style="color:var(--neon3);font-family:'Press Start 2P',monospace;font-size:9px;letter-spacing:.1em;margin-bottom:6px">▣ NEW FEATURES</div>
+        <div style="margin-bottom:4px"><span class="kbd-cap">⌘/CTRL</span> <span class="kbd-cap">Z</span> <span style="color:var(--dim)">Undo</span></div>
+        <div style="margin-bottom:4px"><span class="kbd-cap">⌘/CTRL</span> <span class="kbd-cap">Y</span> <span style="color:var(--dim)">Redo</span></div>
+        <div style="margin-bottom:4px"><span class="kbd-cap">3D SOUND</span> <span style="color:var(--dim)">Add / select / duplicate / delete throwable sound points</span></div>
+        <div style="margin-bottom:4px"><span class="kbd-cap">SLIDE KEYS</span> <span style="color:var(--dim)">Enable horizontal piano dragging for lower / higher note reach</span></div>
+      </div>`;
+    }
+  };
+
+  // ---------- hook init ----------
+  const origInitApp=window.initApp;
+  window.initApp=function(){
+    const r=origInitApp.apply(this, arguments);
+    installUndoButtons();
+    installPianoSlide();
+    ensureSpatialState();
+    captureUndoState();
+    setInterval(()=>{ try{captureUndoState()}catch{} }, 3000);
+    return r;
+  };
+})();
+
+</script>
