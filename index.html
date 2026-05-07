@@ -345,7 +345,7 @@ body.piano-kbd-disabled #chroma{box-shadow:inset 0 0 0 1px rgba(255,0,170,.18)}
 /* ============ FULLSCREEN VISUALIZER ============ */
 #visualizer{position:fixed;inset:0;z-index:8000;display:none;background:#000;overflow:hidden}
 #visualizer.active{display:block}
-#viz-canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#viz-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
 .viz-hud{position:absolute;top:10px;left:10px;display:flex;gap:6px;z-index:8050;font-family:'VT323',monospace}
 .viz-btn{background:rgba(0,0,0,.5);border:1px solid rgba(0,255,213,.4);color:var(--neon);font-family:'VT323',monospace;font-size:13px;padding:5px 10px;cursor:pointer;letter-spacing:.08em;backdrop-filter:blur(6px)}
 .viz-btn:hover{background:rgba(0,255,213,.2)}
@@ -521,7 +521,7 @@ body.performance .perf-return{display:flex}
     <button class="viz-btn" id="viz-toggle-controls">⚙ CONTROLS</button>
   </div>
   <div class="viz-info" id="viz-info">
-    [V1-V5] presets · [Q/E] yaw · [W/S] pitch · [A/D] strafe · [Z/X] zoom · [R] randomize · [ESC] exit
+    [V1-V5] presets · drag=rotate · pinch=zoom · two-finger drag=pan · [Q/E] yaw · [W/S] pitch · [A/D] strafe · [Z/X] zoom · [R] randomize · [ESC] exit
   </div>
   <div class="viz-controls" id="viz-controls"></div>
 </div>
@@ -828,7 +828,7 @@ const STATE={
   // === VISUALIZER ===
   viz:{active:false,scene:'cosmos',sensitivity:1.2,particleCount:1.0,motion:1.0,colorShift:0,bloom:1.0,fog:0.5,
     cam:{yaw:0,pitch:0,distance:25,truckX:0,truckY:0},keysDown:new Set(),
-    flashes:[],preset:0,raf:null}
+    flashes:[],preset:0,raf:null,touch:{enabled:false,pointers:new Map(),gesture:null,lastTap:0}}
 };
 
 /* ===== SYNTH VOICES ===== */
@@ -2949,6 +2949,7 @@ function toggleVisualizer(on){
     if(!STATE.viz.raf)vizLoop();
   } else {
     if(STATE.viz.raf){cancelAnimationFrame(STATE.viz.raf);STATE.viz.raf=null}
+    if(STATE.viz.touch){STATE.viz.touch.pointers.clear();STATE.viz.touch.gesture=null;}
   }
 }
 function vizResize(){
@@ -3037,9 +3038,11 @@ function setupVisualizer(){
   scene.fog=new THREE.FogExp2(0x000000,0.012);
   viz3d={renderer,camera,scene,objs:[],centerObj:null,
     applySettings(){
-      scene.fog.density=0.005+STATE.viz.fog*0.04;
+      const densityBase=((viz3d&&viz3d.scene&&viz3d.scene.fog&&viz3d.scene.fog.density)||0.008);
+      scene.fog.density=Math.max(0.003,densityBase*0.7+STATE.viz.fog*0.02);
     }
   };
+  setupVizGestures();
   vizSetScene(STATE.viz.scene);
 }
 window.addEventListener('resize',()=>{if(viz3d)vizResize()});
@@ -3063,6 +3066,7 @@ function vizSetScene(id){
     desert:vizSceneDesert,mandala:vizSceneMandala,aurora:vizSceneAurora,
     crystal:vizSceneCrystal,beams:vizSceneBeams,vapor:vizSceneVapor
   }[id]||vizSceneCosmos;
+  vizApplySceneEnvironment(id);
   builder();
   // Add center-focus mesh that pulses with audio (lives at world origin)
   const cg=new THREE.IcosahedronGeometry(2,1);
@@ -3088,6 +3092,102 @@ function paletteColor(){
 }
 
 function rand(a,b){return a+Math.random()*(b-a)}
+
+function vizApplySceneEnvironment(id){
+  if(!viz3d)return;
+  const themes={
+    cosmos:{bg:0x02040a,fog:0x02040a,f:0.006},
+    mirror:{bg:0x020208,fog:0x060612,f:0.007},
+    clouds:{bg:0x070b16,fog:0x0b1220,f:0.011},
+    bits:{bg:0x05050a,fog:0x0b0b14,f:0.012},
+    desert:{bg:0x140a08,fog:0x1e0f0a,f:0.010},
+    mandala:{bg:0x07050d,fog:0x120719,f:0.010},
+    aurora:{bg:0x02070a,fog:0x031115,f:0.008},
+    crystal:{bg:0x04060d,fog:0x08111d,f:0.011},
+    beams:{bg:0x030306,fog:0x090914,f:0.009},
+    vapor:{bg:0x03070b,fog:0x071118,f:0.010}
+  };
+  const theme=themes[id]||themes.cosmos;
+  viz3d.scene.background=new THREE.Color(theme.bg);
+  viz3d.scene.fog=new THREE.FogExp2(theme.fog,theme.f+STATE.viz.fog*0.018);
+}
+function setupVizGestures(){
+  const canvas=$('#viz-canvas');
+  if(!canvas||STATE.viz.touch.enabled)return;
+  STATE.viz.touch.enabled=true;
+  const touch=STATE.viz.touch;
+  const pointFromEvent=e=>({x:e.clientX,y:e.clientY});
+  const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+  const midpoint=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2});
+  const beginGesture=()=>{
+    const pts=[...touch.pointers.values()];
+    if(pts.length===1){
+      touch.gesture={type:'rotate',start:pts[0],yaw:STATE.viz.cam.yaw,pitch:STATE.viz.cam.pitch};
+    }else if(pts.length>=2){
+      const a=pts[0],b=pts[1];
+      touch.gesture={type:'multi',distance:distance(a,b),mid:midpoint(a,b),truckX:STATE.viz.cam.truckX,truckY:STATE.viz.cam.truckY,zoom:STATE.viz.cam.distance};
+    }
+  };
+  canvas.addEventListener('pointerdown',e=>{
+    if(!STATE.viz.active)return;
+    canvas.setPointerCapture?.(e.pointerId);
+    touch.pointers.set(e.pointerId,pointFromEvent(e));
+    beginGesture();
+    e.preventDefault();
+  },{passive:false});
+  canvas.addEventListener('pointermove',e=>{
+    if(!STATE.viz.active || !touch.pointers.has(e.pointerId))return;
+    touch.pointers.set(e.pointerId,pointFromEvent(e));
+    const pts=[...touch.pointers.values()];
+    if(pts.length===1){
+      const g=touch.gesture;
+      if(!g||g.type!=='rotate')beginGesture();
+      const p=pts[0],gg=touch.gesture;
+      const dx=p.x-gg.start.x, dy=p.y-gg.start.y;
+      STATE.viz.cam.yaw=gg.yaw-dx*0.008;
+      STATE.viz.cam.pitch=clamp(gg.pitch-dy*0.006,-1.4,1.4);
+      const yawEl=$('#vc-yaw'), yawVal=$('#vc-yaw-v');
+      if(yawEl)yawEl.value=STATE.viz.cam.yaw;
+      if(yawVal)yawVal.textContent=STATE.viz.cam.yaw.toFixed(2);
+    }else if(pts.length>=2){
+      const a=pts[0], b=pts[1];
+      const gg=touch.gesture;
+      if(!gg||gg.type!=='multi')beginGesture();
+      const cur=touch.gesture;
+      const mid=midpoint(a,b);
+      const dist=distance(a,b);
+      const zoomDelta=(cur.distance-dist)*0.035;
+      STATE.viz.cam.distance=clamp(cur.zoom+zoomDelta,6,110);
+      STATE.viz.cam.truckX=clamp(cur.truckX-(mid.x-cur.mid.x)*0.05,-60,60);
+      STATE.viz.cam.truckY=clamp(cur.truckY+(mid.y-cur.mid.y)*0.05,-60,60);
+      const zEl=$('#vc-zoom'),zVal=$('#vc-zoom-v'),xEl=$('#vc-tx'),xVal=$('#vc-tx-v'),yEl=$('#vc-ty'),yVal=$('#vc-ty-v');
+      if(zEl)zEl.value=STATE.viz.cam.distance;
+      if(zVal)zVal.textContent=STATE.viz.cam.distance.toFixed(0);
+      if(xEl)xEl.value=STATE.viz.cam.truckX;
+      if(xVal)xVal.textContent=STATE.viz.cam.truckX.toFixed(0);
+      if(yEl)yEl.value=STATE.viz.cam.truckY;
+      if(yVal)yVal.textContent=STATE.viz.cam.truckY.toFixed(0);
+    }
+    e.preventDefault();
+  },{passive:false});
+  const endPointer=e=>{
+    touch.pointers.delete(e.pointerId);
+    if(touch.pointers.size===0)touch.gesture=null;
+    else beginGesture();
+  };
+  canvas.addEventListener('pointerup',endPointer);
+  canvas.addEventListener('pointercancel',endPointer);
+  canvas.addEventListener('pointerleave',e=>{ if(touch.pointers.has(e.pointerId)) endPointer(e); });
+  canvas.addEventListener('wheel',e=>{
+    if(!STATE.viz.active)return;
+    STATE.viz.cam.distance=clamp(STATE.viz.cam.distance+e.deltaY*0.01,6,110);
+    const zEl=$('#vc-zoom'), zVal=$('#vc-zoom-v');
+    if(zEl)zEl.value=STATE.viz.cam.distance;
+    if(zVal)zVal.textContent=STATE.viz.cam.distance.toFixed(0);
+    e.preventDefault();
+  },{passive:false});
+}
+
 
 /* ----- 1. COSMOS ----- */
 function vizSceneCosmos(){
@@ -3120,39 +3220,73 @@ function vizSceneCosmos(){
 /* ----- 2. MIRROR DIMENSION ----- */
 function vizSceneMirror(){
   const pal=paletteColor();
-  for(let i=0;i<14;i++){
-    const g=new THREE.BoxGeometry(rand(2,5),rand(2,5),rand(2,5));
-    const m=new THREE.MeshBasicMaterial({color:pal[i%pal.length],wireframe:false,transparent:true,opacity:0.8});
-    const cube=new THREE.Mesh(g,m);
-    cube.position.set(rand(-25,25),rand(-25,25),rand(-25,25));
-    cube.userData.kind='mirror';
-    cube.userData.spinX=rand(0.005,0.03);cube.userData.spinY=rand(0.005,0.03);
-    viz3d.scene.add(cube);viz3d.objs.push(cube);
+  const root=new THREE.Group(); root.userData.kind='mirrorRoot';
+  for(let ring=0; ring<4; ring++){
+    const ringGroup=new THREE.Group();
+    const count=6+ring*2;
+    for(let i=0;i<count;i++){
+      const geo=i%2?new THREE.TorusKnotGeometry(0.8+ring*0.18,0.22,64,8):new THREE.OctahedronGeometry(1.1+ring*0.15,0);
+      const mat=new THREE.MeshBasicMaterial({color:pal[(i+ring)%pal.length],wireframe:i%3===0,transparent:true,opacity:0.72});
+      const mesh=new THREE.Mesh(geo,mat);
+      const a=(i/count)*Math.PI*2;
+      const r=8+ring*5;
+      mesh.position.set(Math.cos(a)*r,Math.sin(a*2.0)*5,Math.sin(a)*r);
+      mesh.userData.kind='mirror';
+      mesh.userData.spinX=rand(0.004,0.02); mesh.userData.spinY=rand(0.006,0.024);
+      ringGroup.add(mesh); viz3d.objs.push(mesh);
+    }
+    ringGroup.userData.kind='mirrorRing';
+    ringGroup.userData.spin=(ring%2?-1:1)*rand(0.002,0.009);
+    root.add(ringGroup); viz3d.objs.push(ringGroup);
   }
-  // ground reflective grid
-  const grid=new THREE.GridHelper(120,40,pal[0],pal[1]);
-  grid.position.y=-15;
-  viz3d.scene.add(grid);viz3d.objs.push(grid);
-  const grid2=grid.clone();grid2.position.y=15;grid2.rotation.x=Math.PI;
-  viz3d.scene.add(grid2);viz3d.objs.push(grid2);
+  viz3d.scene.add(root); viz3d.objs.push(root);
+  const planes=[
+    {y:-16,rx:0},{y:16,rx:Math.PI},{z:-45,ry:0}
+  ];
+  planes.forEach((cfg,idx)=>{
+    const g=new THREE.PlaneGeometry(120,120,24,24);
+    const m=new THREE.MeshBasicMaterial({color:pal[idx%pal.length],transparent:true,opacity:0.08,wireframe:true});
+    const plane=new THREE.Mesh(g,m);
+    plane.position.y=cfg.y||0; plane.position.z=cfg.z||0;
+    plane.rotation.x=cfg.rx||0; plane.rotation.y=cfg.ry||0;
+    plane.userData.kind='mirrorPlane';
+    viz3d.scene.add(plane); viz3d.objs.push(plane);
+  });
 }
 
 /* ----- 3. CLOUDSCAPE ----- */
 function vizSceneClouds(){
-  const N=Math.floor(160*STATE.viz.particleCount);
-  for(let i=0;i<N;i++){
-    const sg=new THREE.SphereGeometry(rand(2,6),8,6);
-    const c=new THREE.Color(0xffffff).offsetHSL((STATE.viz.colorShift/360)+rand(-0.05,0.05),0.4,0);
-    const sm=new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:rand(0.04,0.14),blending:THREE.AdditiveBlending,depthWrite:false});
+  const pal=paletteColor().map(c=>new THREE.Color(c));
+  const cloudCount=Math.floor(110*STATE.viz.particleCount);
+  for(let i=0;i<cloudCount;i++){
+    const sg=new THREE.SphereGeometry(rand(2.5,7.5),10,8);
+    const c=pal[i%pal.length].clone().offsetHSL(rand(-0.05,0.05),0.15,0.18);
+    const sm=new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:rand(0.05,0.16),blending:THREE.AdditiveBlending,depthWrite:false});
     const sph=new THREE.Mesh(sg,sm);
-    sph.position.set(rand(-60,60),rand(-15,15),rand(-60,60));
-    sph.userData.kind='cloud';sph.userData.bob=rand(0.005,0.02);sph.userData.phase=rand(0,Math.PI*2);
-    viz3d.scene.add(sph);viz3d.objs.push(sph);
+    sph.position.set(rand(-70,70),rand(-20,24),rand(-80,50));
+    sph.userData.kind='cloud'; sph.userData.bob=rand(0.005,0.02); sph.userData.phase=rand(0,Math.PI*2);
+    viz3d.scene.add(sph); viz3d.objs.push(sph);
   }
-  // sun
-  const sun=new THREE.Mesh(new THREE.SphereGeometry(4,24,16),new THREE.MeshBasicMaterial({color:0xffaa44}));
-  sun.position.set(30,15,-40);sun.userData.kind='sun';
-  viz3d.scene.add(sun);viz3d.objs.push(sun);
+  const horizon=new THREE.Group();
+  for(let i=0;i<8;i++){
+    const ring=new THREE.Mesh(
+      new THREE.TorusGeometry(10+i*4,0.2,8,64),
+      new THREE.MeshBasicMaterial({color:pal[i%pal.length],transparent:true,opacity:0.16,blending:THREE.AdditiveBlending})
+    );
+    ring.position.set(rand(-18,18),-8+i*1.8,-45-i*6);
+    ring.rotation.x=Math.PI/2.4;
+    ring.userData.kind='cloudRing';
+    ring.userData.spin=(i%2?-1:1)*rand(0.002,0.008);
+    horizon.add(ring); viz3d.objs.push(ring);
+  }
+  viz3d.scene.add(horizon); viz3d.objs.push(horizon);
+  const sun=new THREE.Mesh(new THREE.SphereGeometry(5.5,24,16),new THREE.MeshBasicMaterial({color:pal[1]}));
+  sun.position.set(32,18,-56); sun.userData.kind='sun';
+  viz3d.scene.add(sun); viz3d.objs.push(sun);
+  const floor=new THREE.Mesh(new THREE.CircleGeometry(48,48), new THREE.MeshBasicMaterial({color:0x0a1320, transparent:true, opacity:0.65}));
+  floor.rotation.x=-Math.PI/2; floor.position.y=-17;
+  floor.userData.kind='cloudFloor';
+  viz3d.scene.add(floor); viz3d.objs.push(floor);
 }
 
 /* ----- 4. 16-BIT REALM ----- */
@@ -3233,22 +3367,36 @@ function vizSceneMandala(){
 
 /* ----- 7. AURORA ----- */
 function vizSceneAurora(){
-  const N=Math.floor(2200*STATE.viz.particleCount);
-  const g=new THREE.BufferGeometry();
-  const pos=new Float32Array(N*3),col=new Float32Array(N*3);
   const pal=paletteColor().map(c=>new THREE.Color(c));
+  const N=Math.floor(1500*STATE.viz.particleCount);
+  const g=new THREE.BufferGeometry();
+  const pos=new Float32Array(N*3), col=new Float32Array(N*3);
   for(let i=0;i<N;i++){
-    const x=rand(-40,40);
-    const y=rand(-15,25);
-    const z=rand(-40,10);
-    pos[i*3]=x;pos[i*3+1]=y;pos[i*3+2]=z;
-    const c=pal[i%pal.length];col[i*3]=c.r;col[i*3+1]=c.g;col[i*3+2]=c.b;
+    const x=rand(-48,48), z=rand(-55,20);
+    const y=Math.sin(x*0.11)*8+rand(-10,10);
+    pos[i*3]=x; pos[i*3+1]=y; pos[i*3+2]=z;
+    const c=pal[i%pal.length]; col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
   }
   g.setAttribute('position',new THREE.BufferAttribute(pos,3));
   g.setAttribute('color',new THREE.BufferAttribute(col,3));
-  const m=new THREE.PointsMaterial({size:0.55,vertexColors:true,sizeAttenuation:true,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false});
-  const aur=new THREE.Points(g,m);aur.userData.kind='aurora';
-  viz3d.scene.add(aur);viz3d.objs.push(aur);
+  const m=new THREE.PointsMaterial({size:0.62,vertexColors:true,sizeAttenuation:true,transparent:true,opacity:0.82,blending:THREE.AdditiveBlending,depthWrite:false});
+  const aur=new THREE.Points(g,m); aur.userData.kind='aurora';
+  viz3d.scene.add(aur); viz3d.objs.push(aur);
+  for(let i=0;i<5;i++){
+    const curvePts=[];
+    for(let s=0;s<40;s++){
+      const x=-42+s*2.2;
+      curvePts.push(new THREE.Vector3(x, Math.sin((x*0.08)+(i*0.6))*8 + i*3 - 4, -25-i*5 + Math.cos(s*0.15+i)*6));
+    }
+    const curve=new THREE.CatmullRomCurve3(curvePts);
+    const tube=new THREE.Mesh(
+      new THREE.TubeGeometry(curve,180,0.28+i*0.03,8,false),
+      new THREE.MeshBasicMaterial({color:pal[i%pal.length],transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false})
+    );
+    tube.userData.kind='auroraRibbon';
+    tube.userData.spin=(i%2?-1:1)*0.0025;
+    viz3d.scene.add(tube); viz3d.objs.push(tube);
+  }
 }
 
 /* ----- 8. CRYSTAL CAVE ----- */
@@ -3268,34 +3416,72 @@ function vizSceneCrystal(){
 
 /* ----- 9. LIGHT BEAMS ----- */
 function vizSceneBeams(){
-  const pal=paletteColor();
-  for(let i=0;i<24;i++){
-    const g=new THREE.CylinderGeometry(0.18,0.18,rand(20,60),6);
-    const c=new THREE.Color(pal[i%pal.length]);
-    const m=new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:0.45,blending:THREE.AdditiveBlending,depthWrite:false});
+  const pal=paletteColor().map(c=>new THREE.Color(c));
+  for(let i=0;i<28;i++){
+    const g=new THREE.CylinderGeometry(0.12,0.45,rand(24,72),8,1,true);
+    const c=pal[i%pal.length].clone().offsetHSL(rand(-0.02,0.02),0,0.08);
+    const m=new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:0.28,blending:THREE.AdditiveBlending,depthWrite:false});
     const beam=new THREE.Mesh(g,m);
-    beam.position.set(rand(-30,30),rand(-15,15),rand(-30,30));
-    beam.rotation.set(rand(-1,1),rand(-1,1),rand(-1,1));
+    beam.position.set(rand(-34,34),rand(-10,12),rand(-30,30));
+    beam.rotation.set(rand(-0.7,0.7),rand(-1.2,1.2),rand(-0.7,0.7));
     beam.userData.kind='beam';
-    viz3d.scene.add(beam);viz3d.objs.push(beam);
+    viz3d.scene.add(beam); viz3d.objs.push(beam);
   }
+  const halo=new THREE.Group();
+  for(let i=0;i<10;i++){
+    const ring=new THREE.Mesh(
+      new THREE.TorusGeometry(8+i*2.2,0.16,8,50),
+      new THREE.MeshBasicMaterial({color:pal[i%pal.length],transparent:true,opacity:0.24,blending:THREE.AdditiveBlending})
+    );
+    ring.rotation.x=Math.PI/2;
+    ring.position.y=-7+i*1.4;
+    ring.userData.kind='beamRing';
+    halo.add(ring); viz3d.objs.push(ring);
+  }
+  viz3d.scene.add(halo); viz3d.objs.push(halo);
+  const dustN=Math.floor(1800*STATE.viz.particleCount);
+  const gg=new THREE.BufferGeometry();
+  const pos=new Float32Array(dustN*3);
+  for(let i=0;i<dustN;i++){
+    pos[i*3]=rand(-55,55); pos[i*3+1]=rand(-30,30); pos[i*3+2]=rand(-55,55);
+  }
+  gg.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  const dust=new THREE.Points(gg,new THREE.PointsMaterial({color:pal[0],size:0.25,transparent:true,opacity:0.55,blending:THREE.AdditiveBlending,depthWrite:false}));
+  dust.userData.kind='dust';
+  viz3d.scene.add(dust); viz3d.objs.push(dust);
 }
 
 /* ----- 10. VAPOR FIELD ----- */
 function vizSceneVapor(){
-  const N=Math.floor(3000*STATE.viz.particleCount);
+  const N=Math.floor(2600*STATE.viz.particleCount);
   const g=new THREE.BufferGeometry();
-  const pos=new Float32Array(N*3),col=new Float32Array(N*3);
+  const pos=new Float32Array(N*3), col=new Float32Array(N*3);
   const pal=paletteColor().map(c=>new THREE.Color(c));
   for(let i=0;i<N;i++){
-    pos[i*3]=rand(-50,50);pos[i*3+1]=rand(-25,25);pos[i*3+2]=rand(-50,50);
-    const c=pal[i%pal.length];col[i*3]=c.r;col[i*3+1]=c.g;col[i*3+2]=c.b;
+    const x=rand(-55,55), z=rand(-55,55);
+    const y=Math.sin(x*0.08)*2+Math.cos(z*0.07)*2+rand(-12,12);
+    pos[i*3]=x; pos[i*3+1]=y; pos[i*3+2]=z;
+    const c=pal[i%pal.length]; col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
   }
   g.setAttribute('position',new THREE.BufferAttribute(pos,3));
   g.setAttribute('color',new THREE.BufferAttribute(col,3));
-  const m=new THREE.PointsMaterial({size:0.35,vertexColors:true,sizeAttenuation:true,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
-  const v=new THREE.Points(g,m);v.userData.kind='vapor';
-  viz3d.scene.add(v);viz3d.objs.push(v);
+  const m=new THREE.PointsMaterial({size:0.38,vertexColors:true,sizeAttenuation:true,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
+  const v=new THREE.Points(g,m); v.userData.kind='vapor';
+  viz3d.scene.add(v); viz3d.objs.push(v);
+  for(let i=0;i<14;i++){
+    const ring=new THREE.Mesh(
+      new THREE.TorusGeometry(6+i*2.8,0.11,8,60),
+      new THREE.MeshBasicMaterial({color:pal[i%pal.length],transparent:true,opacity:0.18,blending:THREE.AdditiveBlending})
+    );
+    ring.position.y=-12+i*1.4;
+    ring.rotation.x=Math.PI/2;
+    ring.userData.kind='vaporRing';
+    viz3d.scene.add(ring); viz3d.objs.push(ring);
+  }
+  const floor=new THREE.GridHelper(150,24,pal[0].getHex(),pal[2].getHex());
+  floor.position.y=-18;
+  floor.userData.kind='vaporGrid';
+  viz3d.scene.add(floor); viz3d.objs.push(floor);
 }
 
 /* ----- pulse hook (called from press) ----- */
@@ -3459,9 +3645,41 @@ function vizLoop(){
     } else if(k==='beam'){
       o.rotation.x+=0.008*motion;
       o.rotation.z+=0.012*motion;
-      o.material.opacity=0.2+em*0.7;
+      o.material.opacity=0.16+em*0.7;
       const sc=1+eb*1.2;
-      o.scale.set(sc,1+eh*2,sc);
+      o.scale.set(sc,1+eh*2.2,sc);
+    } else if(k==='mirrorRing'){
+      o.rotation.y+=o.userData.spin*motion*4;
+      o.rotation.x+=o.userData.spin*motion*2;
+    } else if(k==='mirrorPlane'){
+      o.rotation.z+=0.0015*motion;
+      if(o.material)o.material.opacity=0.05+em*0.08;
+    } else if(k==='cloudRing'){
+      o.rotation.z+=o.userData.spin*motion*8;
+      const sc=1+eb*0.35;
+      o.scale.set(sc,sc,sc);
+      if(o.material)o.material.opacity=0.10+eh*0.22;
+    } else if(k==='cloudFloor'){
+      o.material.opacity=0.45+eb*0.12;
+    } else if(k==='auroraRibbon'){
+      o.rotation.y+=o.userData.spin*motion*14;
+      o.rotation.z+=0.0012*motion;
+      if(o.material)o.material.opacity=0.12+em*0.24;
+    } else if(k==='beamRing'){
+      o.rotation.z+=0.008*motion+eb*0.03;
+      const sc=1+eh*0.8;
+      o.scale.set(sc,sc,sc);
+      if(o.material)o.material.opacity=0.1+em*0.28;
+    } else if(k==='dust'){
+      o.rotation.y+=0.002*motion+eb*0.01;
+      if(o.material)o.material.size=0.15+eh*0.8;
+    } else if(k==='vaporRing'){
+      o.rotation.z+=0.006*motion;
+      o.position.y+=Math.sin(t*1.2+o.position.y)*0.004;
+      const sc=1+em*0.5;
+      o.scale.set(sc,sc,sc);
+    } else if(k==='vaporGrid'){
+      o.rotation.y+=0.001*motion;
     }
   }
   viz3d.renderer.render(viz3d.scene,viz3d.camera);
