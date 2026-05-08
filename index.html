@@ -230,6 +230,12 @@ select:focus{border-color:var(--neon);box-shadow:0 0 6px var(--neon)}
 .slot-name{font-size:11px;color:var(--neon);text-shadow:0 0 3px var(--neon);text-align:center;line-height:1.05;padding:0 2px}
 .slot-empty{color:var(--dim);font-size:10px}
 
+.arrow-bank-nav{display:inline-flex;align-items:center;gap:4px;padding:3px 5px;border:1px solid var(--stroke);background:rgba(0,0,0,.5);border-radius:8px;cursor:pointer;user-select:none}
+.arrow-bank-nav.active{border-color:var(--neon3);box-shadow:0 0 10px rgba(255,230,0,.22), inset 0 0 8px rgba(255,230,0,.12);background:rgba(255,230,0,.08)}
+.arrow-bank-nav .btn{min-width:28px}
+.arrow-bank-nav .hint{font-family:'VT323',monospace;font-size:12px;letter-spacing:.04em;color:var(--dim);white-space:nowrap}
+.arrow-bank-nav.active .hint{color:var(--neon3)}
+
 /* chord bank */
 .alpha-bar{display:flex;flex-wrap:wrap;gap:2px;padding:3px;border-bottom:1px solid var(--stroke);background:rgba(0,255,213,.03);position:sticky;top:0;z-index:3}
 .alpha-btn{flex:1;min-width:22px;font-family:'VT323',monospace;font-size:11px;padding:2px;text-align:center;background:rgba(0,0,0,.5);border:1px solid var(--stroke)}
@@ -875,7 +881,8 @@ const STATE={
   // === VISUALIZER ===
   viz:{active:false,scene:'cosmos',sensitivity:1.2,particleCount:1.0,motion:1.0,colorShift:0,bloom:1.0,fog:0.5,
     cam:{yaw:0,pitch:0,distance:25,truckX:0,truckY:0},keysDown:new Set(),
-    flashes:[],preset:0,raf:null,touch:{enabled:false,pointers:new Map(),gesture:null,lastTap:0}}
+    flashes:[],preset:0,raf:null,touch:{enabled:false,pointers:new Map(),gesture:null,lastTap:0}},
+  arrowBankFocus:null // 'pads' | 'slots' | null
 };
 
 /* ===== SYNTH VOICES ===== */
@@ -1104,6 +1111,7 @@ const SLOT_KEYS=['F1','F2','F3','F4','F5','F6','F7','F8','F9','F10'];
 const PAD_TRIGGER_KEYS=['Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7','Digit8','Digit9','Digit0','Shift+Digit1','Shift+Digit2','Shift+Digit3','Shift+Digit4','Shift+Digit5','Shift+Digit6'];
 const PAD_KEY_LABELS=['1','2','3','4','5','6','7','8','9','0','⇧1','⇧2','⇧3','⇧4','⇧5','⇧6'];
 const SLOT_KEY_LABELS=['F1','F2','F3','F4','F5','F6','F7','F8','F9','F10'];
+const RESERVED_GLOBAL_SHORTCUTS=new Set([...PAD_TRIGGER_KEYS,...SLOT_KEYS,'Shift+Comma','Shift+Period','BracketLeft','BracketRight','Backslash','Quote','Backquote','Enter','Escape','Space']);
 
 function shortcutFor(midi){
   const real=midi-STATE.octave*12-STATE.transpose;
@@ -2085,11 +2093,17 @@ function buildSlotsWindow(){
       <button class="btn tiny gold" id="slots-next">NEXT</button>
       <button class="btn tiny gold" id="slots-countdown">3s COUNT</button>
       <button class="btn tiny warn" id="slots-stop">■ STOP</button>
+      <div class="arrow-bank-nav ${STATE.arrowBankFocus==='slots'?'active':''}" id="slots-arrow-nav" tabindex="0" aria-label="Arrow control for slots">
+        <button class="btn tiny" id="slots-arrow-left" aria-label="Previous slot">←</button>
+        <span class="hint">ARROWS</span>
+        <button class="btn tiny" id="slots-arrow-right" aria-label="Next slot">→</button>
+      </div>
     </div>
     <div class="slot-grid" id="slot-grid-inner"></div>
     <div style="padding:4px 7px;font-family:VT323;font-size:11px;color:var(--dim);border-top:1px solid var(--stroke);line-height:1.4">
       CLICK: trigger · SHIFT-CLICK: clear · RIGHT-CLICK: arm · CTRL-CLICK: capture shape<br>
-      NEXT follows loaded chord slots only · COUNT shows 3, 2, 1 silently then advances
+      NEXT follows loaded chord slots only · COUNT shows 3, 2, 1 silently then advances<br>
+      TAP the ← ARROWS box, then use your keyboard ← / → to move through slots
     </div>`;
   const grid=body.querySelector('#slot-grid-inner');
   body.querySelector('#slots-cycle-mode').onclick=()=>{
@@ -2099,6 +2113,11 @@ function buildSlotsWindow(){
   body.querySelector('#slots-next').onclick=()=>triggerNextSlot();
   body.querySelector('#slots-countdown').onclick=()=>slotCountdownNext();
   body.querySelector('#slots-stop').onclick=()=>stopAll();
+  const slotsArrowNav=body.querySelector('#slots-arrow-nav');
+  slotsArrowNav.onclick=(e)=>{ if(!e.target.closest('button')) setArrowBankFocus('slots'); };
+  slotsArrowNav.onpointerdown=(e)=>{ if(!e.target.closest('button')) e.preventDefault(); };
+  body.querySelector('#slots-arrow-left').onclick=(e)=>{ e.stopPropagation(); if(STATE.arrowBankFocus!=='slots') setArrowBankFocus('slots'); triggerPrevSlot(); };
+  body.querySelector('#slots-arrow-right').onclick=(e)=>{ e.stopPropagation(); if(STATE.arrowBankFocus!=='slots') setArrowBankFocus('slots'); triggerNextSlot(); };
 
   for(let i=0;i<10;i++){
     const s=STATE.slots[i];
@@ -2448,11 +2467,17 @@ function buildPadsWindow(){
       <button class="btn tiny gold" id="pads-countdown">3s COUNT</button>
       <button class="btn tiny warn" id="pads-stop-all">■ STOP LIVE</button>
       <button class="btn tiny warn" id="pads-clear">CLEAR</button>
+      <div class="arrow-bank-nav ${STATE.arrowBankFocus==='pads'?'active':''}" id="pads-arrow-nav" tabindex="0" aria-label="Arrow control for pads">
+        <button class="btn tiny" id="pads-arrow-left" aria-label="Previous pad">←</button>
+        <span class="hint">ARROWS</span>
+        <button class="btn tiny" id="pads-arrow-right" aria-label="Next pad">→</button>
+      </div>
     </div>
     <div style="padding:4px 7px;font-family:VT323;font-size:11px;color:var(--dim);letter-spacing:.05em;line-height:1.4">
       EMPTY pad = arm capture · play piano · held=SHAPE, sequential=SEQ<br>
       LOADED: TAP=trigger · DRAG audio=load · SHIFT-TAP=clear · LONG-PRESS=edit<br>
-      NEXT follows loaded pads only · COUNT shows 3, 2, 1 silently then advances
+      NEXT follows loaded pads only · COUNT shows 3, 2, 1 silently then advances<br>
+      TAP the ← ARROWS box, then use your keyboard ← / → to move through pads
     </div>
     <div class="sample-pads" id="pads-grid"></div>
     <div id="pad-edit-panel"></div>
@@ -2483,6 +2508,11 @@ function buildPadsWindow(){
     STATE.padCycleIdx=-1;
     buildPadsWindow();
   };
+  const padsArrowNav=body.querySelector('#pads-arrow-nav');
+  padsArrowNav.onclick=(e)=>{ if(!e.target.closest('button')) setArrowBankFocus('pads'); };
+  padsArrowNav.onpointerdown=(e)=>{ if(!e.target.closest('button')) e.preventDefault(); };
+  body.querySelector('#pads-arrow-left').onclick=(e)=>{ e.stopPropagation(); if(STATE.arrowBankFocus!=='pads') setArrowBankFocus('pads'); const idx=getPrevLoadedPadIndex(); if(idx<0){toast('No loaded pads');return} padTrigger(idx); };
+  body.querySelector('#pads-arrow-right').onclick=(e)=>{ e.stopPropagation(); if(STATE.arrowBankFocus!=='pads') setArrowBankFocus('pads'); triggerNextLoadedPad(); };
 
   const grid=body.querySelector('#pads-grid');
   for(let i=0;i<16;i++){
@@ -2986,17 +3016,18 @@ const SHORTCUTS_DATA=[
     ['Tab','Toggle CHROMATIC mode']
   ]},
   {title:'CHORD SLOTS',color:'neon3',items:[
-    ['1 – 0','Trigger slots 1–10'],
+    ['F1 – F10','Trigger slots 1–10'],
     ['Shift + ,','Previous loaded slot'],
     ['Shift + .','Next loaded slot'],
     ['Slot window','Cycle mode: loop / ping-pong'],
     ['Slot window','NEXT / silent 3s COUNT / STOP']
   ]},
   {title:'PADS (1–16)',color:'neon',items:[
-    ['F1 – F8','Trigger pads 1–8'],
-    ['Shift+F1 – Shift+F8','Trigger pads 9–16'],
+    ['1 – 0','Trigger pads 1–10'],
+    ['Shift + 1 – Shift + 6','Trigger pads 11–16'],
     ['Enter ⏎','Save lit keys → next empty pad'],
     ['Ctrl/Cmd + →','Next loaded pad'],
+    ['Pad / Slot ARROWS box','Tap to arm keyboard ← / → control'],
     ['Pad window','Cycle mode: loop / ping-pong'],
     ['Pad window','NEXT or silent 3s COUNT'],
     ['Long-press pad','Open per-pad sound editor'],
@@ -3283,36 +3314,87 @@ document.addEventListener('pointerdown',e=>{
   }
 },true);
 
+function setArrowBankFocus(target){
+  STATE.arrowBankFocus=(STATE.arrowBankFocus===target?null:target);
+  if(STATE.arrowBankFocus) window.__keyboardNavMode=false;
+  if(WIN.sampler) buildPadsWindow();
+  if(WIN.slots) buildSlotsWindow();
+  toast(STATE.arrowBankFocus?`${target==='pads'?'PADS':'SLOTS'} arrows armed`:'Arrow navigation off');
+}
+function triggerArrowBankStep(dir){
+  if(STATE.arrowBankFocus==='pads'){
+    if(dir>0) triggerNextLoadedPad();
+    else{
+      const idx=getPrevLoadedPadIndex();
+      if(idx<0){toast('No loaded pads');return}
+      padTrigger(idx);
+    }
+    return true;
+  }
+  if(STATE.arrowBankFocus==='slots'){
+    if(dir>0) triggerNextSlot();
+    else triggerPrevSlot();
+    return true;
+  }
+  return false;
+}
+
 /* ===== GLOBAL KEYBOARD ===== */
 const downKeys=new Set();
 window.addEventListener('keydown',e=>{
   if(e.code==='Tab') window.__keyboardNavMode=true;
   const focusEl=activeUIFocus();
-  if(!isTextEditingFocus(focusEl)){
+  const editing=isTextEditingFocus(focusEl);
+  const shortcutKey=(e.shiftKey?'Shift+':'')+e.code;
+
+  if(!editing && STATE.arrowBankFocus && !e.ctrlKey && !e.metaKey && !e.altKey && (e.code==='ArrowLeft' || e.code==='ArrowRight')){
+    e.preventDefault();
+    triggerArrowBankStep(e.code==='ArrowRight'?1:-1);
+    return;
+  }
+
+  // Always honor primary performance shortcuts unless typing into a text field.
+  if(!editing){
+    if(e.code==='Backquote'){e.preventDefault();toggleKeyboardPiano();return}
+    if(e.code==='Space'){e.preventDefault();$('#btn-sustain').click();return}
+    if(e.code==='Escape'){$('#color-modal').classList.remove('active');$('#help-modal').classList.remove('active');return}
+    if(e.code==='Enter'){e.preventDefault();saveLitToPad();return}
+    if((e.ctrlKey||e.metaKey)&&e.code==='ArrowRight'){e.preventDefault();triggerNextLoadedPad();return}
+
+    const padIdx=PAD_TRIGGER_KEYS.indexOf(shortcutKey);
+    if(padIdx>=0 && !e.ctrlKey && !e.metaKey && !e.altKey){
+      e.preventDefault();
+      padTrigger(padIdx);
+      return;
+    }
+
+    if(SLOT_KEYS.includes(e.code)&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
+      const i=SLOT_KEYS.indexOf(e.code);
+      const s=STATE.slots[i];
+      if(s){e.preventDefault();triggerSlotIndex(i);return}
+    }
+
+    if(e.shiftKey&&e.code==='Comma'){ e.preventDefault(); triggerPrevSlot(); return; }
+    if(e.shiftKey&&e.code==='Period'){ e.preventDefault(); triggerNextSlot(); return; }
+
     if(e.code==='BracketLeft'){e.preventDefault();modWheelKey(-1,true);return}
     if(e.code==='BracketRight'){e.preventDefault();modWheelKey(1,true);return}
     if(e.code==='Backslash'){e.preventDefault();modWheelToggleHold();return}
     if(e.code==='Quote'){e.preventDefault();modWheelRecenter();return}
+    if(e.code==='KeyV'&&(e.ctrlKey||e.metaKey)){e.preventDefault();toggleVisualizer();return}
   }
+
   if(handleUIFocusKeydown(e))return;
   if(focusEl){
     if(e.code==='Tab')return;
+    if(!editing && RESERVED_GLOBAL_SHORTCUTS.has(shortcutKey)) return;
     e.preventDefault();
     return;
   }
-  if(downKeys.has((e.shiftKey?'Shift+':'')+e.code))return;
-  downKeys.add((e.shiftKey?'Shift+':'')+e.code);
-  if(e.code==='Backquote'){e.preventDefault();toggleKeyboardPiano();return}
-  if(e.code==='Space'){e.preventDefault();$('#btn-sustain').click();return}
-  if(e.code==='Escape'){$('#color-modal').classList.remove('active');$('#help-modal').classList.remove('active');return}
-  // ENTER: save illuminated keys to next empty pad
-  if(e.code==='Enter'){e.preventDefault();saveLitToPad();return}
-  // Ctrl/Cmd + Right Arrow: trigger next loaded pad (wraps to first)
-  if((e.ctrlKey||e.metaKey)&&e.code==='ArrowRight'){e.preventDefault();triggerNextLoadedPad();return}
-  // Number keys now trigger sampler/unified pads directly (Shift+1..6 = pads 11..16)
-  const padKey=(e.shiftKey?'Shift+':'')+e.code;
-  const padIdx=PAD_TRIGGER_KEYS.indexOf(padKey);
-  if(padIdx>=0 && !e.ctrlKey && !e.metaKey && !e.altKey){e.preventDefault();padTrigger(padIdx);return}
+
+  if(downKeys.has(shortcutKey))return;
+  downKeys.add(shortcutKey);
+
   // PERFORMANCE MODE: only pad triggers via clean keyboard layout
   if(document.body.classList.contains('performance')){
     const PERF_MAP={
@@ -3320,50 +3402,19 @@ window.addEventListener('keydown',e=>{
       'KeyQ':8,'KeyW':9,'KeyE':10,'KeyR':11,'KeyT':12,'KeyY':13,'KeyU':14,'KeyI':15
     };
     if(e.code in PERF_MAP){e.preventDefault();padTrigger(PERF_MAP[e.code]);return}
-    // also support [/] for mod wheel + arrow keys for visualizer pan
-    if(e.code==='BracketLeft'){modWheelKey(-1,true);return}
-    if(e.code==='BracketRight'){modWheelKey(1,true);return}
-    if(e.code==='Backslash'){modWheelToggleHold();return}
-    if(e.code==='Quote'){modWheelRecenter();return}
-    return; // block other keys in performance mode
-  }
-  // function keys now trigger chord slots
-  if(SLOT_KEYS.includes(e.code)&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
-    const i=SLOT_KEYS.indexOf(e.code);
-    const s=STATE.slots[i];
-    if(s){e.preventDefault();triggerSlotIndex(i);return}
-  }
-  // mod wheel — [ bend down, ] bend up (adjacent on Apple keyboard, freed from KB_NOTES)
-  if(e.code==='BracketLeft'){e.preventDefault();modWheelKey(-1,true);return}
-  if(e.code==='BracketRight'){e.preventDefault();modWheelKey(1,true);return}
-  if(e.code==='Backslash'){e.preventDefault();modWheelToggleHold();return}
-  if(e.code==='Quote'){e.preventDefault();modWheelRecenter();return}
-  // Visualizer toggle (Ctrl/Cmd+V)
-  if(e.code==='KeyV'&&(e.ctrlKey||e.metaKey)){e.preventDefault();toggleVisualizer();return}
-  // cycle slots with shift+,/.
-  if(e.shiftKey&&e.code==='Comma'){
-    e.preventDefault();
-    triggerPrevSlot();
     return;
   }
-  if(e.shiftKey&&e.code==='Period'){
-    e.preventDefault();
-    triggerNextSlot();
-    return;
-  }
-  // single-letter shortcuts
+
   if(e.code==='KeyL'&&!KB_NOTES[e.code]){loopArm();return}
-  // reserved letters
   if(e.code==='KeyK'&&!e.repeat){loopStopReset();return}
   if(e.code==='Minus'){$('#trans-down').click();return}
   if(e.code==='Equal'&&!KB_NOTES[e.code]){$('#trans-up').click();return}
-  // piano keys
+
   if(KB_NOTES[e.code]!==undefined){
     if(!STATE.keyboardPiano)return;
     e.preventDefault();
     const baseM=KB_NOTES[e.code];
     const m=baseM+STATE.octave*12+STATE.transpose;
-    // also check sample keymap
     if(STATE.sampler.keyMap.has(m)){
       const idx=STATE.sampler.keyMap.get(m);const s=STATE.sampler.buffers[idx];
       if(s)playSampleBuffer(s.buffer,1);
