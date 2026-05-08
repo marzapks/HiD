@@ -1628,20 +1628,28 @@ function buildSpatialWindow(){
     return bestD<26?best:null;
   };
   pad.addEventListener('pointerdown',e=>{
-    const pt=pickPoint(e.clientX,e.clientY) || activeSpatialPoint();
+    e.preventDefault();
+    const picked=pickPoint(e.clientX,e.clientY);
+    const pt=picked || activeSpatialPoint();
     if(pt){
       selectSpatialPoint(pt.id);
       dragId=pt.id;
-      setXY(pt,e.clientX,e.clientY);
-      pad.setPointerCapture(e.pointerId);
-      buildSpatialWindow();
+      if(picked || activeSpatialPoint()){
+        setXY(pt,e.clientX,e.clientY);
+      }
+      try{pad.setPointerCapture(e.pointerId);}catch{}
+      drawSpatialPad(); drawSpatialView(); applySpatialFX();
     }
-  });
+  },{passive:false});
   pad.addEventListener('pointermove',e=>{
     if(!dragId)return;
+    e.preventDefault();
     const pt=spatialPointById(dragId); if(pt) setXY(pt,e.clientX,e.clientY);
-  });
-  pad.addEventListener('pointerup',e=>{ dragId=null; try{pad.releasePointerCapture(e.pointerId)}catch{}; });
+  },{passive:false});
+  const finishSpatialDrag=e=>{ dragId=null; try{ if(e?.pointerId!=null) pad.releasePointerCapture(e.pointerId); }catch{}; };
+  pad.addEventListener('pointerup',finishSpatialDrag,{passive:true});
+  pad.addEventListener('pointercancel',finishSpatialDrag,{passive:true});
+  pad.addEventListener('lostpointercapture',finishSpatialDrag,{passive:true});
   drawSpatialPad(); drawSpatialView();
   applySpatialFX();
 }
@@ -3211,9 +3219,20 @@ function moveUIFocus(current,dir){
   idx=(idx+dir+items.length)%items.length;
   try{items[idx].focus({preventScroll:true})}catch{items[idx].focus()}
 }
+window.__keyboardNavMode=false;
+window.addEventListener('pointerdown',e=>{
+  const ae=document.activeElement;
+  if(!isTextEditingFocus(ae)) window.__keyboardNavMode=false;
+},true);
+window.addEventListener('touchstart',e=>{
+  const ae=document.activeElement;
+  if(!isTextEditingFocus(ae)) window.__keyboardNavMode=false;
+},true);
 function activeUIFocus(){
   const ae=document.activeElement;
-  return isUIFocusable(ae)?ae:null;
+  if(!isUIFocusable(ae)) return null;
+  if(isTextEditingFocus(ae)) return ae;
+  return window.__keyboardNavMode ? ae : null;
 }
 function isTextEditingFocus(el){
   if(!el)return false;
@@ -3267,6 +3286,7 @@ document.addEventListener('pointerdown',e=>{
 /* ===== GLOBAL KEYBOARD ===== */
 const downKeys=new Set();
 window.addEventListener('keydown',e=>{
+  if(e.code==='Tab') window.__keyboardNavMode=true;
   const focusEl=activeUIFocus();
   if(!isTextEditingFocus(focusEl)){
     if(e.code==='BracketLeft'){e.preventDefault();modWheelKey(-1,true);return}
@@ -4448,7 +4468,13 @@ async function startAppFromLaunch(ev){
       _unlockOsc.stop(ctx.currentTime+0.01);
     }
   }catch(err){ console.warn('launch audio unlock failed',err); }
-  $('#prelaunch-modal')?.classList.remove('show');
+  const modal=$('#prelaunch-modal');
+  if(modal){
+    modal.classList.remove('show');
+    modal.setAttribute('aria-hidden','true');
+    modal.style.pointerEvents='none';
+  }
+  window.__keyboardNavMode=false;
   $('#launch').style.display='none';
   $('#app').classList.add('active');
   if(!window.__appInitialized){
@@ -4460,7 +4486,12 @@ async function startAppFromLaunch(ev){
 }
 function openPrelaunchReminder(ev){
   if(ev){ ev.preventDefault?.(); ev.stopPropagation?.(); }
-  $('#prelaunch-modal')?.classList.add('show');
+  const modal=$('#prelaunch-modal');
+  if(modal){
+    modal.classList.add('show');
+    modal.setAttribute('aria-hidden','false');
+    modal.style.pointerEvents='auto';
+  }
 }
 function bindLaunchAction(el,fn){
   if(!el) return;
@@ -4473,12 +4504,25 @@ function bindLaunchAction(el,fn){
     setTimeout(()=>{ fired=false; },180);
   };
   el.addEventListener('click',run,{passive:false});
+  el.addEventListener('pointerdown',run,{passive:false});
   el.addEventListener('pointerup',run,{passive:false});
   el.addEventListener('touchend',run,{passive:false});
 }
+
 bindLaunchAction($('#launch-btn'),openPrelaunchReminder);
 bindLaunchAction($('#prelaunch-continue'),startAppFromLaunch);
+const __launchBtn=$('#launch-btn');
+const __prelaunchBtn=$('#prelaunch-continue');
+if(__launchBtn) __launchBtn.onclick=openPrelaunchReminder;
+if(__prelaunchBtn) __prelaunchBtn.onclick=startAppFromLaunch;
+$('#prelaunch-modal')?.addEventListener('pointerdown',e=>{
+  if(e.target?.id==='prelaunch-modal'){
+    e.preventDefault();
+    e.stopPropagation();
+  }
+},{passive:false});
 window.addEventListener('keydown',e=>{
+  if(e.code==='Tab') window.__keyboardNavMode=true;
   if($('#launch').style.display!=='none' && e.code==='Enter'){
     e.preventDefault();
     if($('#prelaunch-modal')?.classList.contains('show')) startAppFromLaunch(e);
@@ -4493,7 +4537,7 @@ document.addEventListener('keydown',e=>{
 });
 </script>
 
-<div class="overlay-modal" id="prelaunch-modal" aria-hidden="true">
+<div class="overlay-modal" id="prelaunch-modal" aria-hidden="true" style="pointer-events:none">
   <div class="overlay-card">
     <h3>BEST EXPERIENCE</h3>
     <p>This app functions best with a <b>computer keyboard</b>. You can still use touch and on-screen controls, but the live piano and many performance shortcuts are designed for a hardware keyboard.</p>
