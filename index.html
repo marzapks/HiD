@@ -3346,6 +3346,7 @@ window.addEventListener('keyup',e=>{
 /* ===== INIT (called by launch button) ===== */
 function initApp(){
   initAudio();
+  if(ctx && ctx.state!=='running'){ ctx.resume().catch(()=>{}); }
   updateKeyboardPianoUI();
   // Build piano + chroma
   buildPiano();
@@ -4392,18 +4393,44 @@ window.addEventListener('keyup',e=>{
 
 /* ===== LAUNCH ===== */
 let __launchReady=false;
-function startAppFromLaunch(){
+async function startAppFromLaunch(ev){
+  if(ev){ ev.preventDefault?.(); ev.stopPropagation?.(); }
   if(__launchReady)return;
   __launchReady=true;
+  try{
+    initAudio();
+    if(ctx && ctx.state!=='running'){
+      await ctx.resume();
+    }
+    if(ctx){
+      const _unlockOsc=ctx.createOscillator();
+      const _unlockGain=ctx.createGain();
+      _unlockGain.gain.value=0.00001;
+      _unlockOsc.connect(_unlockGain).connect(master||ctx.destination);
+      _unlockOsc.start();
+      _unlockOsc.stop(ctx.currentTime+0.01);
+    }
+  }catch(err){ console.warn('launch audio unlock failed',err); }
   $('#prelaunch-modal')?.classList.remove('show');
   $('#launch').style.display='none';
   $('#app').classList.add('active');
-  setTimeout(initApp,30);
+  setTimeout(()=>{
+    if(!window.__appInitialized){
+      window.__appInitialized=true;
+      initApp();
+    }else if(ctx && ctx.state!=='running'){
+      ctx.resume().catch(()=>{});
+    }
+  },30);
 }
-$('#launch-btn').addEventListener('click',()=>{
+function openPrelaunchReminder(ev){
+  if(ev){ ev.preventDefault?.(); ev.stopPropagation?.(); }
   $('#prelaunch-modal')?.classList.add('show');
-});
+}
+$('#launch-btn').addEventListener('click',openPrelaunchReminder);
+$('#launch-btn').addEventListener('pointerdown',openPrelaunchReminder,{passive:false});
 $('#prelaunch-continue')?.addEventListener('click',startAppFromLaunch);
+$('#prelaunch-continue')?.addEventListener('pointerdown',startAppFromLaunch,{passive:false});
 window.addEventListener('keydown',e=>{
   if($('#launch').style.display!=='none' && e.code==='Enter'){
     e.preventDefault();
