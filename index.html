@@ -411,6 +411,31 @@ body.performance .perf-return{display:flex}
 .board-disclaimer{font-size:11px;line-height:1.4;color:var(--dim)}
 @media (max-width:900px){.board-grid{grid-template-columns:1fr}}
 
+
+/* Added bank edit + stereo enhance controls */
+.bank-mini-tools{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.bank-mini-tools .btn{min-width:auto}
+.slot-wrap,.spad-wrap{position:relative}
+.slot.off,.spad.off{opacity:.38;filter:saturate(.45)}
+.slot-off,.spad-off{
+  position:absolute;top:4px;right:4px;z-index:4;width:20px;height:20px;border-radius:50%;
+  border:1px solid rgba(255,80,120,.45);background:rgba(0,0,0,.82);color:#ff5f88;
+  display:flex;align-items:center;justify-content:center;font-size:11px;line-height:1;
+  box-shadow:0 0 6px rgba(255,80,120,.18)
+}
+.slot-off.on,.spad-off.on{color:var(--neon);border-color:rgba(0,255,213,.45);box-shadow:0 0 8px rgba(0,255,213,.25)}
+.slot.dragging,.spad.dragging{opacity:.55}
+.stereo-enhance-btn{
+  font-family:'Press Start 2P',monospace;font-size:8px;padding:6px 10px;border:1px solid rgba(255,230,0,.55);
+  color:#fff7b1;background:linear-gradient(180deg,rgba(255,230,0,.14),rgba(0,255,213,.08));
+  text-shadow:0 0 6px rgba(255,230,0,.75);box-shadow:0 0 12px rgba(255,230,0,.22), inset 0 0 10px rgba(255,255,255,.05)
+}
+.stereo-enhance-btn.on{background:linear-gradient(180deg,rgba(255,230,0,.3),rgba(0,255,213,.12));color:#000}
+.stereo-block{display:flex;align-items:center;gap:7px;padding:3px 8px;border:1px solid rgba(255,230,0,.35);background:rgba(255,230,0,.05)}
+.stereo-slider{width:120px;height:6px;-webkit-appearance:none;appearance:none;background:linear-gradient(90deg,#000,#ffe600);border:1px solid var(--stroke);outline:none}
+.stereo-slider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:18px;background:#fff7b1;box-shadow:0 0 8px #ffe600;cursor:pointer;border:1px solid #000}
+.stereo-slider::-moz-range-thumb{width:14px;height:18px;background:#fff7b1;box-shadow:0 0 8px #ffe600;cursor:pointer;border:1px solid #000}
+
 </style>
 </head>
 <body>
@@ -472,6 +497,11 @@ body.performance .perf-return{display:flex}
     <button class="btn-vis" id="btn-vis">✦ VISUALIZER</button>
     <button class="btn-perf" id="btn-perf">▣ PERFORMANCE</button>
     <button class="btn" id="btn-help">?</button>
+    <div class="stereo-block">
+      <button class="stereo-enhance-btn ${''}" id="btn-stereo-enhance">◉ BIGGER</button>
+      <input class="stereo-slider" type="range" id="stereo-enhance-amt" min="0" max="1" step="0.01" value="0.42">
+      <span class="master-val" id="stereo-enhance-val">42</span>
+    </div>
     <input type="file" id="file-load" style="display:none" accept=".hold,.json">
     <input type="file" id="file-audio" style="display:none" accept="audio/*,video/*" multiple>
   </header>
@@ -575,6 +605,7 @@ let eqLow,eqMid,eqHigh,distortion;
 let chorus={},phaser={},tremMod,tremGain,tremPath;
 let delayL,delayR,dlyFB,dlyMixWet,dlyMixDry;
 let revConv,revWet,revDry,comp,recordTap;
+let stereoWideL,stereoWideR,stereoLow,stereoCrossL,stereoCrossR;
 let analyser=null,analyserData=null,analyserTime=null;
 let spatialFX=null;
 
@@ -660,12 +691,28 @@ function initAudio(){
   recordTap.connect(spTone).connect(spDelay).connect(spPan).connect(spConv).connect(spWet).connect(spOut);
   spDelay.connect(spFb).connect(spDelay);
   spLfo.connect(spLfoGain).connect(spPan.pan); spLfo.start();
+  stereoWideL=ctx.createStereoPanner(); stereoWideL.pan.value=-1;
+  stereoWideR=ctx.createStereoPanner(); stereoWideR.pan.value=1;
+  stereoLow=ctx.createBiquadFilter(); stereoLow.type='lowshelf'; stereoLow.frequency.value=180; stereoLow.gain.value=0;
+  const stereoSplit=ctx.createChannelSplitter(2);
+  const stereoMerge=ctx.createChannelMerger(2);
+  stereoCrossL=ctx.createGain(); stereoCrossR=ctx.createGain();
+  stereoCrossL.gain.value=0; stereoCrossR.gain.value=0;
+  spOut.connect(stereoLow).connect(stereoSplit);
+  stereoSplit.connect(stereoWideL,0);
+  stereoSplit.connect(stereoWideR,1);
+  stereoSplit.connect(stereoCrossR,0);
+  stereoSplit.connect(stereoCrossL,1);
+  stereoWideL.connect(stereoMerge,0,0);
+  stereoWideR.connect(stereoMerge,0,1);
+  stereoCrossL.connect(stereoMerge,0,0);
+  stereoCrossR.connect(stereoMerge,0,1);
   spatialFX={enabled:false,mix:0.28,delay:0.22,feedback:0.25,spread:0.35,depth:0.35,focusX:0,focusY:0,mode:'headphones',
     points:[{id:'pt-main',name:'MAIN',x:0,y:0,mix:0.65,spread:0.35,depth:0.28,delay:0.18,feedback:0.18,lead:0.12,glitter:0.22,cosmic:0.18,enabled:true,selected:true,color:'255,230,0',interval:0,octave:0,detune:0.3,wave:'sine'}],
     selectedPointId:'pt-main', nextPointId:1,
     motionTick:0, sparkleSeed:Math.random(),
-    nodes:{spIn,spDry,spWet,spOut,spPan,spDelay,spFb,spLfo,spLfoGain,spTone,spConv}};
-  spOut.connect(kill).connect(master).connect(ctx.destination);
+    nodes:{spIn,spDry,spWet,spOut,spPan,spDelay,spFb,spLfo,spLfoGain,spTone,spConv,stereoMerge}};
+  stereoMerge.connect(kill).connect(master).connect(ctx.destination);
 }
 
 /* ===== PATCH BANKS (5 banks x 20 patches) ===== */
@@ -834,6 +881,7 @@ const CHORD_CATALOG=(()=>{const o=[];
 const STATE={
   bank:'EP',patchIdx:0,octave:0,transpose:0,bpm:92,delayDiv:0.5,
   sustain:false,chromatic:false,build:false,keyboardPiano:true,
+  slotsOrderMode:false,padsOrderMode:false,
   amp:{a:null,d:null,s:null,r:null},
   filt:{co:null,q:null},
   mod:{lfoR:null,lfoD:null,glide:0,vol:.7,drive:null,pan:0},
@@ -842,7 +890,7 @@ const STATE={
     phaserOn:false,phaserRate:.4,phaserDepth:400,phaserMix:.4,
     tremOn:false,tremRate:5,tremDepth:.5,
     delayOn:false,delayMix:.3,delayFB:.35,
-    reverbOn:true,reverbMix:.18,reverbSize:2.5},
+    reverbOn:true,reverbMix:.18,reverbSize:2.5,stereoEnhanceOn:false,stereoEnhanceAmt:0.42},
   slots:new Array(10).fill(null),
   slotIdx:0,
   slotCycleMode:'loop',      // loop | pingpong
@@ -1897,6 +1945,10 @@ function applyFXState(){
   const dm=STATE.fx.delayOn?STATE.fx.delayMix:0;dlyMixWet.gain.value=dm;dlyMixDry.gain.value=1-dm*0.4;
   if(Math.abs(revConv.buffer.duration-STATE.fx.reverbSize)>0.1)revConv.buffer=makeImpulse(STATE.fx.reverbSize,2);
   const rm=STATE.fx.reverbOn?STATE.fx.reverbMix:0;revWet.gain.value=rm;revDry.gain.value=1-rm*0.4;
+  const enh=STATE.fx.stereoEnhanceOn?(STATE.fx.stereoEnhanceAmt??0.42):0;
+  if(stereoLow) stereoLow.gain.value=enh*7.5;
+  if(stereoCrossL) stereoCrossL.gain.value=-enh*0.18;
+  if(stereoCrossR) stereoCrossR.gain.value=-enh*0.18;
 }
 
 function buildSoundDesignWindow(){
@@ -2010,7 +2062,7 @@ function buildChordBankWindow(){
 }
 
 function getLoadedSlotIndices(){
-  return STATE.slots.map((s,i)=>s?i:-1).filter(i=>i>=0);
+  return STATE.slots.map((s,i)=>(s && !s.disabled)?i:-1).filter(i=>i>=0);
 }
 function getPrevLoadedSlotIndex(){
   const loaded=getLoadedSlotIndices();
@@ -2040,7 +2092,7 @@ function getNextLoadedSlotIndex(){
 function triggerSlotIndex(idx){
   if(idx<0)return;
   const s=STATE.slots[idx];
-  if(!s)return;
+  if(!s||s.disabled)return;
   STATE.slotIdx=idx;
   playChord(s);
   buildSlotsWindow();
@@ -2085,13 +2137,72 @@ function slotCountdownNext(){
   },1000);
 }
 
+
+function ensureArrayMin(arr,minCount){
+  while(arr.length<minCount)arr.push(null);
+}
+function toggleSlotDisabled(idx){
+  const s=STATE.slots[idx]; if(!s)return;
+  s.disabled=!s.disabled;
+  if(s.disabled && STATE.slotIdx===idx) stopAll();
+  buildSlotsWindow();
+}
+function togglePadDisabled(idx){
+  const p=STATE.pads[idx]; if(!p)return;
+  p.disabled=!p.disabled;
+  if(p.disabled){ padStop(idx,true); }
+  buildPadsWindow();
+}
+function duplicateSlotAt(idx){
+  const s=STATE.slots[idx]; if(!s){toast('Select a loaded slot');return;}
+  const clone=JSON.parse(JSON.stringify(s));
+  clone.name=(clone.name||('SLOT '+(idx+1)))+' COPY';
+  STATE.slots.splice(idx+1,0,clone);
+  buildSlotsWindow();
+}
+function duplicatePadAt(idx){
+  const p=STATE.pads[idx]; if(!p){toast('Select a loaded pad');return;}
+  const clone=JSON.parse(JSON.stringify(p));
+  clone.name=(clone.name||('PAD '+(idx+1)))+' COPY';
+  STATE.pads.splice(idx+1,0,clone);
+  buildPadsWindow();
+}
+function moveItem(arr,from,to){
+  if(from===to || from<0 || to<0 || from>=arr.length || to>=arr.length)return;
+  const item=arr.splice(from,1)[0];
+  arr.splice(to,0,item);
+}
+function getSlotDisplayLabel(i){
+  const lbl=SLOT_KEY_LABELS[i];
+  return lbl||String(i+1);
+}
+function getPadDisplayLabel(i){
+  const lbl=PAD_KEY_LABELS[i];
+  return lbl||String(i+1);
+}
+function getPrevLoadedPadIndex(){
+  const loaded=getLoadedPadIndices();
+  if(!loaded.length)return -1;
+  let pos=loaded.indexOf(STATE.padCycleIdx);
+  if(pos<0)return loaded[loaded.length-1];
+  pos=(pos-1+loaded.length)%loaded.length;
+  return loaded[pos];
+}
+
 function buildSlotsWindow(){
   const w=WIN.slots;if(!w)return;
   const body=w.el.querySelector('.win-body');
+  ensureArrayMin(STATE.slots,10);
   body.innerHTML=`<div class="cb-toolbar">
       <button class="btn tiny ${STATE.slotCycleMode==='pingpong'?'on':''}" id="slots-cycle-mode">CYCLE: ${STATE.slotCycleMode==='pingpong'?'PING-PONG':'LOOP'}</button>
       <button class="btn tiny gold" id="slots-next">NEXT</button>
       <button class="btn tiny gold" id="slots-countdown">3s COUNT</button>
+      <button class="btn tiny" id="slots-order">${STATE.slotsOrderMode?'DONE ORDER':'ORDER'}</button>
+      <button class="btn tiny" id="slots-duplicate">DUP</button>
+      <div class="bank-mini-tools">
+        <button class="btn tiny" id="slots-minus">−</button>
+        <button class="btn tiny" id="slots-plus">+</button>
+      </div>
       <button class="btn tiny warn" id="slots-stop">■ STOP</button>
       <div class="arrow-bank-nav ${STATE.arrowBankFocus==='slots'?'active':''}" id="slots-arrow-nav" tabindex="0" aria-label="Arrow control for slots">
         <button class="btn tiny" id="slots-arrow-left" aria-label="Previous slot">←</button>
@@ -2111,6 +2222,10 @@ function buildSlotsWindow(){
     toast('Slot cycle '+(STATE.slotCycleMode==='loop'?'LOOP':'PING-PONG'));
   };
   body.querySelector('#slots-next').onclick=()=>triggerNextSlot();
+  body.querySelector('#slots-order').onclick=()=>{STATE.slotsOrderMode=!STATE.slotsOrderMode;buildSlotsWindow();};
+  body.querySelector('#slots-duplicate').onclick=()=>duplicateSlotAt(STATE.slotIdx>=0?STATE.slotIdx:0);
+  body.querySelector('#slots-plus').onclick=()=>{STATE.slots.push(null);buildSlotsWindow();};
+  body.querySelector('#slots-minus').onclick=()=>{if(STATE.slots.length<=1){toast('Need at least one slot');return} const removed=STATE.slots.pop(); if(removed && STATE.slotIdx>=STATE.slots.length) STATE.slotIdx=Math.max(0,STATE.slots.length-1); buildSlotsWindow();};
   body.querySelector('#slots-countdown').onclick=()=>slotCountdownNext();
   body.querySelector('#slots-stop').onclick=()=>stopAll();
   const slotsArrowNav=body.querySelector('#slots-arrow-nav');
@@ -2119,12 +2234,23 @@ function buildSlotsWindow(){
   body.querySelector('#slots-arrow-left').onclick=(e)=>{ e.stopPropagation(); if(STATE.arrowBankFocus!=='slots') setArrowBankFocus('slots'); triggerPrevSlot(); };
   body.querySelector('#slots-arrow-right').onclick=(e)=>{ e.stopPropagation(); if(STATE.arrowBankFocus!=='slots') setArrowBankFocus('slots'); triggerNextSlot(); };
 
-  for(let i=0;i<10;i++){
+  for(let i=0;i<STATE.slots.length;i++){
     const s=STATE.slots[i];
-    const el=document.createElement('div');el.className='slot'+(i===STATE.slotIdx?' armed':'')+(s?' active':'');
-    const num=SLOT_KEY_LABELS[i]||String(i+1===10?0:i+1);
+    const wrap=document.createElement('div');wrap.className='slot-wrap';
+    const el=document.createElement('div');el.className='slot'+(i===STATE.slotIdx?' armed':'')+(s?' active':'')+((s&&s.disabled)?' off':'');
+    if(STATE.slotsOrderMode){el.draggable=true; el.dataset.dragIndex=i;}
+    const num=getSlotDisplayLabel(i);
     el.innerHTML=`<span class="slot-num">${num}</span><span class="${s?'slot-name':'slot-empty'}">${s?s.name:'—'}</span>`;
+    if(s){
+      const off=document.createElement('button');
+      off.className='slot-off '+(s.disabled?'':'on');
+      off.textContent='⏻';
+      off.title=s.disabled?'Enable slot':'Disable slot';
+      off.onclick=(e)=>{e.stopPropagation();toggleSlotDisabled(i);};
+      wrap.appendChild(off);
+    }
     el.addEventListener('click',e=>{
+      if(e.target.closest('.slot-off')) return;
       if(e.shiftKey){STATE.slots[i]=null;buildSlotsWindow();toast(`Slot ${i+1} cleared`);return}
       if(e.ctrlKey||e.metaKey){
         const set=Array.from(STATE.shapeNotes).sort((a,b)=>a-b);
@@ -2134,7 +2260,14 @@ function buildSlotsWindow(){
       if(s)triggerSlotIndex(i);
     });
     el.addEventListener('contextmenu',e=>{e.preventDefault();STATE.slotIdx=i;buildSlotsWindow();toast(`Armed slot ${i+1}`)});
-    grid.appendChild(el);
+    if(STATE.slotsOrderMode){
+      el.addEventListener('dragstart',()=>el.classList.add('dragging'));
+      el.addEventListener('dragend',()=>{el.classList.remove('dragging');});
+      wrap.addEventListener('dragover',e=>e.preventDefault());
+      wrap.addEventListener('dragenter',e=>{e.preventDefault(); const from=+(document.querySelector('.slot.dragging')?.dataset.dragIndex??-1); if(from>=0&&from!==i){ moveItem(STATE.slots,from,i); if(STATE.slotIdx===from)STATE.slotIdx=i; else if(from<STATE.slotIdx&&i>=STATE.slotIdx)STATE.slotIdx--; else if(from>STATE.slotIdx&&i<=STATE.slotIdx)STATE.slotIdx++; buildSlotsWindow(); }});
+    }
+    wrap.appendChild(el);
+    grid.appendChild(wrap);
   }
 }
 
@@ -2246,7 +2379,7 @@ function padFinalizeCapture(){
 }
 
 function getLoadedPadIndices(){
-  return STATE.pads.map((p,i)=>p?i:-1).filter(i=>i>=0);
+  return STATE.pads.map((p,i)=>(p && !p.disabled)?i:-1).filter(i=>i>=0);
 }
 function getNextLoadedPadIndex(){
   const loaded=getLoadedPadIndices();
@@ -2311,6 +2444,7 @@ function padTrigger(idx){
   if(idx<0||idx>=STATE.pads.length)return;
   STATE.padCycleIdx=idx;
   const p=STATE.pads[idx];
+  if(p && p.disabled){toast('Pad is off');return}
   if(!p){
     // empty: arm for capture
     padArmCapture(idx);
@@ -2452,6 +2586,7 @@ function saveLitToPad(){
 }
 
 function buildPadsWindow(){
+  ensureArrayMin(STATE.pads,16);
   const w=WIN.sampler;if(!w)return;
   const body=w.el.querySelector('.win-body');
   const editP=STATE.padEditingIdx>=0?STATE.pads[STATE.padEditingIdx]:null;
@@ -2465,6 +2600,12 @@ function buildPadsWindow(){
       <button class="btn tiny ${STATE.padCycleMode==='pingpong'?'on':''}" id="pads-cycle-mode">CYCLE: ${STATE.padCycleMode==='pingpong'?'PING-PONG':'LOOP'}</button>
       <button class="btn tiny gold" id="pads-next">NEXT</button>
       <button class="btn tiny gold" id="pads-countdown">3s COUNT</button>
+      <button class="btn tiny" id="pads-order">${STATE.padsOrderMode?'DONE ORDER':'ORDER'}</button>
+      <button class="btn tiny" id="pads-duplicate">DUP</button>
+      <div class="bank-mini-tools">
+        <button class="btn tiny" id="pads-minus">−</button>
+        <button class="btn tiny" id="pads-plus">+</button>
+      </div>
       <button class="btn tiny warn" id="pads-stop-all">■ STOP LIVE</button>
       <button class="btn tiny warn" id="pads-clear">CLEAR</button>
       <div class="arrow-bank-nav ${STATE.arrowBankFocus==='pads'?'active':''}" id="pads-arrow-nav" tabindex="0" aria-label="Arrow control for pads">
@@ -2494,6 +2635,10 @@ function buildPadsWindow(){
   };
   body.querySelector('#pads-next').onclick=()=>triggerNextLoadedPad();
   body.querySelector('#pads-countdown').onclick=()=>padCountdownNext();
+  body.querySelector('#pads-order').onclick=()=>{STATE.padsOrderMode=!STATE.padsOrderMode;buildPadsWindow();};
+  body.querySelector('#pads-duplicate').onclick=()=>duplicatePadAt(STATE.padEditingIdx>=0?STATE.padEditingIdx:STATE.padCycleIdx>=0?STATE.padCycleIdx:0);
+  body.querySelector('#pads-plus').onclick=()=>{STATE.pads.push(null);buildPadsWindow();};
+  body.querySelector('#pads-minus').onclick=()=>{if(STATE.pads.length<=1){toast('Need at least one pad');return} padStop(STATE.pads.length-1,true); STATE.pads.pop(); if(STATE.padEditingIdx>=STATE.pads.length)STATE.padEditingIdx=STATE.pads.length-1; buildPadsWindow();};
   body.querySelector('#pads-arm-toggle').onclick=()=>{
     if(STATE.padArmedRec>=0){padCancelCapture();return}
     const idx=STATE.pads.findIndex(p=>!p);
@@ -2501,9 +2646,9 @@ function buildPadsWindow(){
   };
   body.querySelector('#pads-stop-all').onclick=()=>stopAll();
   body.querySelector('#pads-clear').onclick=()=>{
-    if(!confirm('Clear all 16 pads?'))return;
+    if(!confirm('Clear all pads?'))return;
     padStopAll(false);
-    STATE.pads=new Array(16).fill(null);
+    STATE.pads=new Array(Math.max(16,STATE.pads.length)).fill(null);
     STATE.padEditingIdx=-1;
     STATE.padCycleIdx=-1;
     buildPadsWindow();
@@ -2515,10 +2660,11 @@ function buildPadsWindow(){
   body.querySelector('#pads-arrow-right').onclick=(e)=>{ e.stopPropagation(); if(STATE.arrowBankFocus!=='pads') setArrowBankFocus('pads'); triggerNextLoadedPad(); };
 
   const grid=body.querySelector('#pads-grid');
-  for(let i=0;i<16;i++){
+  for(let i=0;i<STATE.pads.length;i++){
     const p=STATE.pads[i];
+    const wrap=document.createElement('div'); wrap.className='spad-wrap';
     const pad=document.createElement('div');
-    pad.className='spad';
+    pad.className='spad'+((p&&p.disabled)?' off':'');
     if(p&&p.kind==='sample')pad.classList.add('has-sample');
     else if(p&&p.kind==='shape')pad.classList.add('shape');
     else if(p&&p.kind==='sequence')pad.classList.add('has-seq');
@@ -2526,7 +2672,8 @@ function buildPadsWindow(){
     if(STATE.padPlayingVoices.has(i)||STATE.padPlayingSequences.has(i))pad.classList.add('sustained');
     if(STATE.padEditingIdx===i)pad.style.outline='2px solid var(--neon3)';
     const tag=p?(p.kind==='sample'?'WAV':p.kind==='shape'?'CHRD':'SEQ'):(STATE.padArmedRec===i?'REC':'•');
-    pad.innerHTML=`<span class="spad-key">${PAD_KEY_LABELS[i]}</span><span class="spad-tag">${tag}</span><span class="${p?'spad-name':'spad-empty'}">${p?p.name:(STATE.padArmedRec===i?'ARMED':'EMPTY')}</span>`;
+    pad.innerHTML=`<span class="spad-key">${getPadDisplayLabel(i)}</span><span class="spad-tag">${tag}</span><span class="${p?'spad-name':'spad-empty'}">${p?p.name:(STATE.padArmedRec===i?'ARMED':'EMPTY')}</span>`;
+    if(STATE.padsOrderMode){pad.draggable=true; pad.dataset.dragIndex=i;}
     let pressTimer=null;let longPressed=false;
     pad.addEventListener('pointerdown',e=>{
       longPressed=false;
@@ -2541,6 +2688,7 @@ function buildPadsWindow(){
     pad.addEventListener('pointerup',()=>{if(pressTimer)clearTimeout(pressTimer)});
     pad.addEventListener('pointerleave',()=>{if(pressTimer)clearTimeout(pressTimer)});
     pad.addEventListener('click',e=>{
+      if(e.target.closest('.spad-off')) return;
       if(longPressed){longPressed=false;return}
       if(e.shiftKey){padStop(i,false);STATE.pads[i]=null;if(STATE.padEditingIdx===i)STATE.padEditingIdx=-1;if(STATE.padCycleIdx===i)STATE.padCycleIdx=-1;buildPadsWindow();toast('Pad '+(i+1)+' cleared');return}
       padTrigger(i);
@@ -2555,7 +2703,22 @@ function buildPadsWindow(){
     pad.addEventListener('drop',e=>{e.preventDefault();pad.style.borderColor='';
       const f=e.dataTransfer.files[0];if(f)loadPadSample(i,f);
     });
-    grid.appendChild(pad);
+    if(p){
+      const off=document.createElement('button');
+      off.className='spad-off '+(p.disabled?'':'on');
+      off.textContent='⏻';
+      off.title=p.disabled?'Enable pad':'Disable pad';
+      off.onclick=(e)=>{e.stopPropagation();togglePadDisabled(i);};
+      wrap.appendChild(off);
+    }
+    if(STATE.padsOrderMode){
+      pad.addEventListener('dragstart',()=>pad.classList.add('dragging'));
+      pad.addEventListener('dragend',()=>pad.classList.remove('dragging'));
+      wrap.addEventListener('dragover',e=>e.preventDefault());
+      wrap.addEventListener('dragenter',e=>{e.preventDefault(); const from=+(document.querySelector('.spad.dragging')?.dataset.dragIndex??-1); if(from>=0&&from!==i){ moveItem(STATE.pads,from,i); if(STATE.padEditingIdx===from)STATE.padEditingIdx=i; buildPadsWindow(); }});
+    }
+    wrap.appendChild(pad);
+    grid.appendChild(wrap);
   }
 
   // Pad edit panel — shows sliders for selected pad
@@ -2902,6 +3065,20 @@ $('#master-vol').addEventListener('input',e=>{
   master.gain.value=v;
   $('#master-val').textContent=Math.round(v*100);
 });
+$('#btn-stereo-enhance').addEventListener('click',()=>{
+  STATE.fx.stereoEnhanceOn=!STATE.fx.stereoEnhanceOn;
+  $('#btn-stereo-enhance').classList.toggle('on',STATE.fx.stereoEnhanceOn);
+  applyFXState();
+});
+$('#stereo-enhance-amt').addEventListener('input',e=>{
+  STATE.fx.stereoEnhanceAmt=parseFloat(e.target.value);
+  $('#stereo-enhance-val').textContent=Math.round(STATE.fx.stereoEnhanceAmt*100);
+  if(STATE.fx.stereoEnhanceAmt>0 && !STATE.fx.stereoEnhanceOn) $('#btn-stereo-enhance').classList.add('on');
+  applyFXState();
+});
+$('#btn-stereo-enhance').classList.toggle('on',STATE.fx.stereoEnhanceOn);
+$('#stereo-enhance-amt').value=STATE.fx.stereoEnhanceAmt??0.42;
+$('#stereo-enhance-val').textContent=Math.round((STATE.fx.stereoEnhanceAmt??0.42)*100);
 $('#kill-btn').addEventListener('click',()=>{
   if(!ctx)return;
   padCancelCountdown();
@@ -3020,7 +3197,8 @@ const SHORTCUTS_DATA=[
     ['Shift + ,','Previous loaded slot'],
     ['Shift + .','Next loaded slot'],
     ['Slot window','Cycle mode: loop / ping-pong'],
-    ['Slot window','NEXT / silent 3s COUNT / STOP']
+    ['Slot window','NEXT / silent 3s COUNT / STOP'],
+    ['Slot window','ORDER / DUP / + / − / ⏻ skip']
   ]},
   {title:'PADS (1–16)',color:'neon',items:[
     ['1 – 0','Trigger pads 1–10'],
@@ -3033,7 +3211,8 @@ const SHORTCUTS_DATA=[
     ['Long-press pad','Open per-pad sound editor'],
     ['Shift-click pad','Clear pad'],
     ['Right-click pad','Toggle pad sustain'],
-    ['Drag audio → pad','Load WAV/MP3 sample']
+    ['Drag audio → pad','Load WAV/MP3 sample'],
+    ['Pad window','ORDER / DUP / + / − / ⏻ skip']
   ]},
   {title:'MOD WHEEL',color:'neon3',items:[
     ['[','Bend DOWN (semitones)'],
@@ -3048,6 +3227,7 @@ const SHORTCUTS_DATA=[
     ['– =','Transpose down / up'],
     ['Ctrl/Cmd + V','Toggle 3D VISUALIZER'],
     ['Save / Load','Full project now includes sampler pads'],
+    ['BIGGER + slider','Stereo width + fuller low end for whole mix'],
     ['Esc','Close modal / exit visualizer']
   ]},
   {title:'VISUALIZER CAMERA',color:'neon',items:[
@@ -3217,6 +3397,7 @@ $('#file-load').addEventListener('change',async e=>{
     $('#chroma').classList.toggle('active',STATE.chromatic);
     $('#piano').style.display=STATE.chromatic?'none':'flex';
     buildBankSelect();buildBankWindow();buildFXWindow();buildSoundDesignWindow();buildSlotsWindow();buildChordBankWindow();buildPadsWindow();buildSpatialWindow();
+    $('#btn-stereo-enhance').classList.toggle('on',!!STATE.fx.stereoEnhanceOn); $('#stereo-enhance-amt').value=STATE.fx.stereoEnhanceAmt??0.42; $('#stereo-enhance-val').textContent=Math.round((STATE.fx.stereoEnhanceAmt??0.42)*100);
     refreshShortcuts();updateKeyboardPianoUI();applyFXState();updateTape();
     toast('Project loaded');
   } catch(err){console.warn(err);toast('Load failed')}
