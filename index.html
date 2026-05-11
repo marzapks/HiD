@@ -4828,7 +4828,7 @@ window.addEventListener('keyup',e=>{
 
 /* ===== LAUNCH ===== */
 let __launchReady=false;
-async async function startAppFromLaunch(ev){
+async function startAppFromLaunch(ev){
   if(ev){ ev.preventDefault?.(); ev.stopPropagation?.(); }
   if(__launchReady)return;
   __launchReady=true;
@@ -4887,33 +4887,21 @@ function bindLaunchAction(el,fn){
   el.addEventListener('touchend',run,{passive:false});
 }
 
-function __bindPrelaunchControls(){
-  const launchBtn = $('#launch-btn');
-  const continueBtn = $('#prelaunch-continue');
-  const modal = $('#prelaunch-modal');
-  bindLaunchAction(launchBtn,openPrelaunchReminder);
-  bindLaunchAction(continueBtn,startAppFromLaunch);
-  if(launchBtn) launchBtn.onclick=openPrelaunchReminder;
-  if(continueBtn) continueBtn.onclick=startAppFromLaunch;
-  if(modal && !modal.__boundBackdrop){
-    modal.__boundBackdrop=true;
-    modal.addEventListener('pointerdown',e=>{
-      if(e.target?.id==='prelaunch-modal'){
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    },{passive:false});
+bindLaunchAction($('#launch-btn'),openPrelaunchReminder);
+bindLaunchAction($('#prelaunch-continue'),startAppFromLaunch);
+const __launchBtn=$('#launch-btn');
+const __prelaunchBtn=$('#prelaunch-continue');
+if(__launchBtn) __launchBtn.onclick=openPrelaunchReminder;
+if(__prelaunchBtn) __prelaunchBtn.onclick=startAppFromLaunch;
+$('#prelaunch-modal')?.addEventListener('pointerdown',e=>{
+  if(e.target?.id==='prelaunch-modal'){
+    e.preventDefault();
+    e.stopPropagation();
   }
-}
-if(document.readyState==='loading'){
-  document.addEventListener('DOMContentLoaded',__bindPrelaunchControls,{once:true});
-} else {
-  __bindPrelaunchControls();
-}
+},{passive:false});
 window.addEventListener('keydown',e=>{
   if(e.code==='Tab') window.__keyboardNavMode=true;
-  const launchEl = $('#launch');
-  if(launchEl && launchEl.style.display!=='none' && e.code==='Enter'){
+  if($('#launch').style.display!=='none' && e.code==='Enter'){
     e.preventDefault();
     if($('#prelaunch-modal')?.classList.contains('show')) startAppFromLaunch(e);
     else openPrelaunchReminder(e);
@@ -4923,7 +4911,6 @@ document.addEventListener('keydown',e=>{
   if(e.code==='Escape' && $('#prelaunch-modal')?.classList.contains('show')){
     e.preventDefault();
     $('#prelaunch-modal').classList.remove('show');
-    $('#prelaunch-modal').style.pointerEvents='none';
   }
 });
 </script>
@@ -4940,81 +4927,57 @@ document.addEventListener('keydown',e=>{
 </div>
 
 
-<script id="oai-launch-fix-patch">
+<script>
 (function(){
-  function $(s){ return document.querySelector(s); }
-  function safeOpenReminder(ev){
-    if(ev){ try{ev.preventDefault();}catch(e){} try{ev.stopPropagation();}catch(e){} }
-    var modal = $('#prelaunch-modal');
-    if(!modal) return false;
-    modal.classList.add('show');
-    modal.setAttribute('aria-hidden','false');
-    modal.style.pointerEvents='auto';
-    return false;
-  }
-  async function safeContinueLaunch(ev){
-    if(ev){ try{ev.preventDefault();}catch(e){} try{ev.stopPropagation();}catch(e){} }
+  function q(sel){ return document.querySelector(sel); }
+  async function __safeStart(ev){
+    if(ev){ ev.preventDefault(); ev.stopPropagation(); }
+    const modal=q('#prelaunch-modal');
+    const launch=q('#launch');
+    const app=q('#app');
     try{
       if(typeof initAudio==='function') initAudio();
-      if(typeof ctx!=='undefined' && ctx && ctx.state!=='running'){
-        try{ await ctx.resume(); }catch(e){}
-      }
-      if(typeof master!=='undefined' && typeof ctx!=='undefined' && ctx){
-        try{
-          const o=ctx.createOscillator(), g=ctx.createGain();
-          g.gain.value=0.00001;
-          o.connect(g).connect(master||ctx.destination);
-          o.start();
-          o.stop(ctx.currentTime+0.01);
-        }catch(e){}
-      }
-    }catch(e){}
-    var modal = $('#prelaunch-modal');
+      if(typeof ctx!=='undefined' && ctx && ctx.state!=='running'){ await ctx.resume(); }
+      if(typeof ensureAudioReady==='function') ensureAudioReady();
+    }catch(err){ console.warn('safe launch resume failed', err); }
     if(modal){
       modal.classList.remove('show');
       modal.setAttribute('aria-hidden','true');
       modal.style.pointerEvents='none';
     }
-    var launch = $('#launch');
-    var app = $('#app');
     if(launch) launch.style.display='none';
     if(app) app.classList.add('active');
     try{
-      if(!window.__appInitialized && typeof initApp==='function'){
-        window.__appInitialized = true;
-        initApp();
+      if(typeof window.__appInitialized==='undefined' || !window.__appInitialized){
+        window.__appInitialized=true;
+        if(typeof initApp==='function') initApp();
       }
-      if(typeof ensureAudioReady==='function') ensureAudioReady();
-    }catch(e){ console.warn('launch continue patch init failed', e); }
-    return false;
+    }catch(err){ console.warn('safe initApp failed', err); }
   }
-  function bind(el, fn){
-    if(!el) return;
-    el.onclick = fn;
-    el.ontouchend = fn;
-    el.onpointerup = fn;
-    el.style.pointerEvents = 'auto';
-    el.style.touchAction = 'manipulation';
-    el.setAttribute('role','button');
-  }
-  function install(){
-    bind($('#launch-btn'), safeOpenReminder);
-    bind($('#prelaunch-continue'), safeContinueLaunch);
-    var modal = $('#prelaunch-modal');
+  function __safeOpen(ev){
+    if(ev){ ev.preventDefault(); ev.stopPropagation(); }
+    const modal=q('#prelaunch-modal');
     if(modal){
-      modal.style.pointerEvents = modal.classList.contains('show') ? 'auto' : 'none';
-      modal.addEventListener('click', function(ev){
-        if(ev.target && ev.target.id==='prelaunch-modal'){
-          ev.preventDefault();
-          ev.stopPropagation();
-        }
-      }, true);
+      modal.classList.add('show');
+      modal.setAttribute('aria-hidden','false');
+      modal.style.pointerEvents='auto';
     }
   }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', install);
-  else install();
+  function bind(el, fn){
+    if(!el || el.__safeBound) return;
+    el.__safeBound = true;
+    ['click','touchend','pointerup'].forEach(type=>{
+      el.addEventListener(type, fn, {passive:false});
+    });
+  }
+  const launchBtn=q('#launch-btn');
+  const continueBtn=q('#prelaunch-continue');
+  bind(launchBtn, __safeOpen);
+  bind(continueBtn, __safeStart);
+  if(launchBtn) launchBtn.onclick=__safeOpen;
+  if(continueBtn) continueBtn.onclick=__safeStart;
 })();
 </script>
-
 </body>
 </html>
+
