@@ -503,7 +503,7 @@ body.performance .perf-return{display:flex}
       <span class="master-val" id="stereo-enhance-val">42</span>
     </div>
     <input type="file" id="file-load" style="display:none" accept=".hold,.json">
-    <input type="file" id="file-audio" style="display:none" accept="audio/*,video/*" multiple>
+    <input type="file" id="file-audio" style="display:none" accept=".mp3,.wav,.wave,.m4a,.aac,.ogg,.oga,.flac,.aif,.aiff,.caf,.webm,.mp4,audio/*,video/*" multiple>
   </header>
 
   <div class="splitter" id="split-top" title="Drag to resize topbar"></div>
@@ -2625,7 +2625,7 @@ function buildPadsWindow(){
     <div style="border-top:1px solid var(--stroke);padding:4px 7px;font-family:VT323;font-size:11px;color:var(--neon);letter-spacing:.06em">SAMPLE→KEY ASSIGNMENT</div>
     <div class="sample-list" id="pads-keymap-list" style="padding:0 5px 6px"></div>`;
 
-  body.querySelector('#pads-import').onclick=()=>$('#file-audio').click();
+  body.querySelector('#pads-import').onclick=()=>{const fi=$('#file-audio'); fi.value=''; fi.click();};
   body.querySelector('#pads-from-lit').onclick=saveLitToPad;
   body.querySelector('#pads-sustain-mode').onclick=()=>{STATE.padSustainMode=!STATE.padSustainMode;buildPadsWindow()};
   body.querySelector('#pads-solo-mode').onclick=()=>{STATE.padSoloMode=!STATE.padSoloMode;toast(STATE.padSoloMode?'SOLO mode':'STACK mode');buildPadsWindow()};
@@ -2810,19 +2810,32 @@ function buildPadEditPanel(host,idx,p){
 // Backwards alias so init still works
 function buildSamplerWindow(){return buildPadsWindow()}
 
+const SUPPORTED_AUDIO_EXTS=['mp3','wav','wave','m4a','aac','ogg','oga','flac','aif','aiff','caf','webm','mp4'];
+function isSupportedAudioFile(file){
+  const ext=(file?.name?.split('.').pop()||'').toLowerCase();
+  return !!(SUPPORTED_AUDIO_EXTS.includes(ext)||String(file?.type||'').startsWith('audio/')||String(file?.type||'').startsWith('video/'));
+}
 $('#file-audio').addEventListener('change',async e=>{
   const files=Array.from(e.target.files||[]);
+  let loaded=0,failed=0;
   for(const f of files){
+    if(!isSupportedAudioFile(f)){ failed++; toast('Unsupported file: '+f.name,1800); continue; }
     try{
       const buf=await decodeAudioFile(f);
       const name=f.name.replace(/\.[^.]+$/,'').slice(0,18);
       // first try to fill an empty pad as a sample
       const idx=STATE.pads.findIndex(p=>!p);
-      if(idx>=0)STATE.pads[idx]={kind:'sample',name,buffer:buf};
-      else STATE.sampler.buffers.push({name,buffer:buf});
-    } catch(err){toast('Failed: '+f.name)}
+      if(idx>=0)STATE.pads[idx]={kind:'sample',name,buffer:buf,fileType:(f.type||''),fileName:f.name};
+      else STATE.sampler.buffers.push({name,buffer:buf,fileType:(f.type||''),fileName:f.name});
+      loaded++;
+    } catch(err){
+      failed++;
+      toast('Could not decode: '+f.name,1800);
+    }
   }
   buildPadsWindow();
+  if(loaded)toast(`Loaded ${loaded} audio file${loaded===1?'':'s'} to sampler`,1800);
+  if(failed && !loaded)toast('Try MP3, WAV, M4A, AAC, OGG, FLAC, AIFF, CAF, WEBM, or MP4 audio',2600);
   e.target.value='';
 });
 
