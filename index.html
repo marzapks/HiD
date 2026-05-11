@@ -2875,6 +2875,14 @@ function buildPadEditPanel(host,idx,p){
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;font-family:VT323;font-size:11px">
           <div class="mw-row"><label>SEMITONES</label><input type="range" id="pe-tr" min="-24" max="24" step="1" value="${p.sampleTranspose}"><span class="v">${(p.sampleTranspose>=0?'+':'')+p.sampleTranspose} st</span></div>
+          <div class="mw-row" style="grid-column:1 / span 2;display:flex;align-items:center;gap:6px;padding:3px 0">
+            <label style="min-width:86px">TRANSPOSE</label>
+            <button class="btn tiny" id="pe-tr-down" style="font-size:10px;min-width:34px">−1</button>
+            <button class="btn tiny" id="pe-tr-up" style="font-size:10px;min-width:34px">+1</button>
+            <button class="btn tiny" id="pe-tr-down12" style="font-size:10px;min-width:42px">−12</button>
+            <button class="btn tiny" id="pe-tr-up12" style="font-size:10px;min-width:42px">+12</button>
+            <div style="margin-left:auto;padding:3px 8px;border:1px solid var(--stroke);background:#000;color:var(--neon3)"><span id="pe-tr-readout">${(p.sampleTranspose>=0?'+':'')+p.sampleTranspose} st</span></div>
+          </div>
           <div class="mw-row"><label>CUTOFF</label><input type="range" id="pe-co" min="80" max="18000" step="20" value="${p.sampleCutoff}"><span class="v">${p.sampleCutoff|0}</span></div>
           <div class="mw-row"><label>RES</label><input type="range" id="pe-q" min="0.1" max="20" step="0.1" value="${p.sampleRes}"><span class="v">${p.sampleRes.toFixed(1)}</span></div>
           <div class="mw-row"><label>DRIVE</label><input type="range" id="pe-dr" min="0" max="1" step="0.01" value="${p.sampleDrive}"><span class="v">${p.sampleDrive.toFixed(2)}</span></div>
@@ -2900,6 +2908,24 @@ function buildPadEditPanel(host,idx,p){
     bind('pe-q',v=>p.sampleRes=v,v=>v.toFixed(1));
     bind('pe-dr',v=>p.sampleDrive=v,v=>v.toFixed(2));
     bind('pe-pan',v=>p.samplePan=v,v=>v.toFixed(2));
+    const trSlider=host.querySelector('#pe-tr');
+    const trReadout=host.querySelector('#pe-tr-readout');
+    const syncTransposeUI=()=>{
+      if(trSlider) trSlider.value=String(p.sampleTranspose||0);
+      const txt=((p.sampleTranspose||0)>=0?'+':'')+(p.sampleTranspose||0)+' st';
+      if(trReadout) trReadout.textContent=txt;
+      const trVal=host.querySelector('#pe-tr')?.nextElementSibling;
+      if(trVal) trVal.textContent=txt;
+      applyLive();
+    };
+    const nudgeTranspose=(amt)=>{
+      p.sampleTranspose=Math.max(-24,Math.min(24,(p.sampleTranspose||0)+amt));
+      syncTransposeUI();
+    };
+    host.querySelector('#pe-tr-down')?.addEventListener('click',()=>nudgeTranspose(-1));
+    host.querySelector('#pe-tr-up')?.addEventListener('click',()=>nudgeTranspose(1));
+    host.querySelector('#pe-tr-down12')?.addEventListener('click',()=>nudgeTranspose(-12));
+    host.querySelector('#pe-tr-up12')?.addEventListener('click',()=>nudgeTranspose(12));
     host.querySelector('#pe-stop').onclick=()=>padStop(idx,true);
     host.querySelector('#pe-close').onclick=()=>{STATE.padEditingIdx=-1;buildPadsWindow()};
     host.querySelector('#pe-rename').onclick=()=>{const n=prompt('Pad name?',p.name);if(n){p.name=n.slice(0,18);buildPadsWindow()}};
