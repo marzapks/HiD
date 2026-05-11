@@ -4929,55 +4929,82 @@ document.addEventListener('keydown',e=>{
 
 <script>
 (function(){
-  function q(sel){ return document.querySelector(sel); }
-  async function __safeStart(ev){
-    if(ev){ ev.preventDefault(); ev.stopPropagation(); }
-    const modal=q('#prelaunch-modal');
-    const launch=q('#launch');
-    const app=q('#app');
-    try{
-      if(typeof initAudio==='function') initAudio();
-      if(typeof ctx!=='undefined' && ctx && ctx.state!=='running'){ await ctx.resume(); }
-      if(typeof ensureAudioReady==='function') ensureAudioReady();
-    }catch(err){ console.warn('safe launch resume failed', err); }
-    if(modal){
-      modal.classList.remove('show');
-      modal.setAttribute('aria-hidden','true');
-      modal.style.pointerEvents='none';
-    }
-    if(launch) launch.style.display='none';
-    if(app) app.classList.add('active');
-    try{
-      if(typeof window.__appInitialized==='undefined' || !window.__appInitialized){
-        window.__appInitialized=true;
-        if(typeof initApp==='function') initApp();
+  function q(id){ return document.getElementById(id); }
+  function bindLaunchFix(){
+    var launchBtn=q('launch-btn');
+    var contBtn=q('prelaunch-continue');
+    var modal=q('prelaunch-modal');
+    var launch=q('launch');
+    var app=q('app');
+
+    if(modal){ modal.style.pointerEvents='none'; modal.setAttribute('aria-hidden','true'); }
+
+    function openReminder(ev){
+      if(ev){ ev.preventDefault(); ev.stopPropagation(); }
+      if(modal){
+        modal.classList.add('show');
+        modal.style.pointerEvents='auto';
+        modal.setAttribute('aria-hidden','false');
       }
-    }catch(err){ console.warn('safe initApp failed', err); }
-  }
-  function __safeOpen(ev){
-    if(ev){ ev.preventDefault(); ev.stopPropagation(); }
-    const modal=q('#prelaunch-modal');
+    }
+
+    async function continueIntoApp(ev){
+      if(ev){ ev.preventDefault(); ev.stopPropagation(); }
+      try{
+        if(typeof initAudio==='function') initAudio();
+        if(typeof ctx!=='undefined' && ctx && ctx.state!=='running'){
+          try{ await ctx.resume(); }catch(_e){}
+        }
+        if(typeof ensureAudioReady==='function') ensureAudioReady();
+      }catch(_e){}
+      if(modal){
+        modal.classList.remove('show');
+        modal.style.pointerEvents='none';
+        modal.setAttribute('aria-hidden','true');
+      }
+      if(launch) launch.style.display='none';
+      if(app) app.classList.add('active');
+      try{
+        if(!window.__appInitialized && typeof initApp==='function'){
+          window.__appInitialized=true;
+          initApp();
+        } else if(typeof ensureAudioReady==='function'){
+          ensureAudioReady();
+        }
+      }catch(err){
+        console.warn('late launch fix init failed', err);
+      }
+    }
+
+    if(launchBtn){
+      launchBtn.onclick=openReminder;
+      launchBtn.addEventListener('click',openReminder,{passive:false});
+      launchBtn.addEventListener('pointerup',openReminder,{passive:false});
+      launchBtn.addEventListener('touchend',openReminder,{passive:false});
+    }
+    if(contBtn){
+      contBtn.onclick=continueIntoApp;
+      contBtn.addEventListener('click',continueIntoApp,{passive:false});
+      contBtn.addEventListener('pointerup',continueIntoApp,{passive:false});
+      contBtn.addEventListener('touchend',continueIntoApp,{passive:false});
+    }
     if(modal){
-      modal.classList.add('show');
-      modal.setAttribute('aria-hidden','false');
-      modal.style.pointerEvents='auto';
+      modal.addEventListener('click',function(ev){
+        if(ev.target===modal){
+          ev.preventDefault();
+          ev.stopPropagation();
+        }
+      },{passive:false});
     }
   }
-  function bind(el, fn){
-    if(!el || el.__safeBound) return;
-    el.__safeBound = true;
-    ['click','touchend','pointerup'].forEach(type=>{
-      el.addEventListener(type, fn, {passive:false});
-    });
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded', bindLaunchFix, {once:true});
+  } else {
+    bindLaunchFix();
   }
-  const launchBtn=q('#launch-btn');
-  const continueBtn=q('#prelaunch-continue');
-  bind(launchBtn, __safeOpen);
-  bind(continueBtn, __safeStart);
-  if(launchBtn) launchBtn.onclick=__safeOpen;
-  if(continueBtn) continueBtn.onclick=__safeStart;
 })();
 </script>
+
 </body>
 </html>
-
